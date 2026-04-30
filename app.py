@@ -1,15 +1,13 @@
 from flask import Flask, render_template, request, jsonify
 import requests
 import os
-os.environ["API_KEY"] =
-os.getenv("API_KEY")
 
 app = Flask(__name__)
 
-# 🔑 Ambil API Key
+# 🔑 Ambil API key dari Railway
 API_KEY = os.getenv("API_KEY")
 
-# 🔥 DEBUG (lihat di Railway Logs)
+# 🔥 DEBUG AWAL (cek di Logs Railway)
 print("=== DEBUG START ===")
 print("API_KEY:", API_KEY)
 print("=== DEBUG END ===")
@@ -24,9 +22,9 @@ def home():
 def chat():
     user_input = request.json.get("message")
 
-    # ❌ Kalau API key belum kebaca
+    # ❌ kalau API key belum kebaca
     if not API_KEY:
-        return jsonify({"reply": "❌ API_KEY belum kebaca di server"})
+        return jsonify({"reply": "❌ API_KEY belum terbaca di server (cek Railway Variables)"})
 
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -36,7 +34,7 @@ def chat():
     payload = {
         "model": "llama-3.1-8b-instant",
         "messages": [
-            {"role": "system", "content": "You are NeuroMV. Reply naturally."},
+            {"role": "system", "content": "You are NeuroMV. Reply naturally in user's language."},
             {"role": "user", "content": user_input}
         ]
     }
@@ -47,8 +45,9 @@ def chat():
         # 🔥 DEBUG STATUS
         print("STATUS CODE:", r.status_code)
 
-        # ❌ Kalau API error
+        # ❌ kalau API error
         if r.status_code != 200:
+            print("ERROR RESPONSE:", r.text)
             return jsonify({"reply": f"❌ API Error: {r.text}"})
 
         data = r.json()
@@ -56,15 +55,16 @@ def chat():
         # 🔥 DEBUG RESPONSE
         print("RESPONSE:", data)
 
-        # ❌ Kalau format aneh
+        # ❌ kalau format aneh
         if "choices" not in data:
-            return jsonify({"reply": f"❌ Response aneh: {data}"})
+            return jsonify({"reply": f"❌ Response tidak valid: {data}"})
 
         reply = data["choices"][0]["message"]["content"]
 
         return jsonify({"reply": reply})
 
     except Exception as e:
+        print("SERVER ERROR:", str(e))
         return jsonify({"reply": f"❌ Server Error: {str(e)}"})
 
 
