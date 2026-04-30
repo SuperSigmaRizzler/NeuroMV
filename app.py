@@ -4,7 +4,13 @@ import os
 
 app = Flask(__name__)
 
-API_KEY = os.environ.get("API_KEY")
+# 🔑 Ambil API Key
+API_KEY = os.getenv("API_KEY")
+
+# 🔥 DEBUG (lihat di Railway Logs)
+print("=== DEBUG START ===")
+print("API_KEY:", API_KEY)
+print("=== DEBUG END ===")
 
 URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -16,8 +22,9 @@ def home():
 def chat():
     user_input = request.json.get("message")
 
+    # ❌ Kalau API key belum kebaca
     if not API_KEY:
-        return jsonify({"reply": "❌ API_KEY belum diset di Railway"})
+        return jsonify({"reply": "❌ API_KEY belum kebaca di server"})
 
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -35,13 +42,19 @@ def chat():
     try:
         r = requests.post(URL, headers=headers, json=payload)
 
-        # 🔥 kalau status error
+        # 🔥 DEBUG STATUS
+        print("STATUS CODE:", r.status_code)
+
+        # ❌ Kalau API error
         if r.status_code != 200:
             return jsonify({"reply": f"❌ API Error: {r.text}"})
 
         data = r.json()
 
-        # 🔥 validasi structure
+        # 🔥 DEBUG RESPONSE
+        print("RESPONSE:", data)
+
+        # ❌ Kalau format aneh
         if "choices" not in data:
             return jsonify({"reply": f"❌ Response aneh: {data}"})
 
