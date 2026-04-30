@@ -6,33 +6,33 @@
 
 <style>
 body{
-background:#111827;
+background:#0f172a;
 color:white;
 font-family:Arial;
 padding:20px;
 }
 
 #chat{
-height:420px;
+height:400px;
 overflow-y:auto;
-background:#1f2937;
+background:#1e293b;
 padding:15px;
-border-radius:12px;
+border-radius:10px;
 margin-bottom:10px;
 }
 
 input{
 width:70%;
 padding:10px;
-border-radius:10px;
+border-radius:8px;
 border:none;
 }
 
 button{
 padding:10px;
 border:none;
-border-radius:10px;
-background:#3b82f6;
+border-radius:8px;
+background:#22c55e;
 color:white;
 }
 
@@ -44,25 +44,24 @@ margin:10px 0;
 
 <body>
 
-<h1>🤖 NeuroMV</h1>
+<h2>🤖 NeuroMV</h2>
 
 <div id="chat"></div>
 
-<input id="msg" placeholder="Type message">
-<button onclick="send()">Send</button>
+<input id="msg" placeholder="Tulis pesan...">
+<button onclick="send()">Kirim</button>
 
 <script>
 async function send(){
-
 let msg = document.getElementById("msg").value.trim();
 if(!msg) return;
 
 let chat = document.getElementById("chat");
 
-chat.innerHTML += "<div class='msg'><b>You:</b> "+msg+"</div>";
-
+chat.innerHTML += `<div class="msg"><b>Kamu:</b> ${msg}</div>`;
 document.getElementById("msg").value="";
 
+try{
 let res = await fetch("/chat",{
 method:"POST",
 headers:{"Content-Type":"application/json"},
@@ -71,7 +70,11 @@ body:JSON.stringify({message:msg})
 
 let data = await res.json();
 
-chat.innerHTML += "<div class='msg'><b>NeuroMV:</b> "+data.reply+"</div>";
+chat.innerHTML += `<div class="msg"><b>NeuroMV:</b> ${data.reply}</div>`;
+
+}catch(e){
+chat.innerHTML += `<div class="msg"><b>NeuroMV:</b> ❌ Error koneksi</div>`;
+}
 
 chat.scrollTop = chat.scrollHeight;
 }
