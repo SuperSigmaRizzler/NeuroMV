@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroMV</title>
+
+<style>
+body{
+background:#111827;
+color:white;
+font-family:Arial;
+padding:20px;
+}
+
+#chat{
+height:420px;
+overflow-y:auto;
+background:#1f2937;
+padding:15px;
+border-radius:12px;
+margin-bottom:10px;
+}
+
+input{
+width:70%;
+padding:10px;
+border-radius:10px;
+border:none;
+}
+
+button{
+padding:10px;
+border:none;
+border-radius:10px;
+background:#3b82f6;
+color:white;
+}
+
+.msg{
+margin:10px 0;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🤖 NeuroMV</h1>
+
+<div id="chat"></div>
+
+<input id="msg" placeholder="Type message">
+<button onclick="send()">Send</button>
+
+<script>
+async function send(){
+
+let msg = document.getElementById("msg").value.trim();
+if(!msg) return;
+
+let chat = document.getElementById("chat");
+
+chat.innerHTML += "<div class='msg'><b>You:</b> "+msg+"</div>";
+
+document.getElementById("msg").value="";
+
+let res = await fetch("/chat",{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify({message:msg})
+});
+
+let data = await res.json();
+
+chat.innerHTML += "<div class='msg'><b>NeuroMV:</b> "+data.reply+"</div>";
+
+chat.scrollTop = chat.scrollHeight;
+}
+</script>
+
+</body>
+</html>
