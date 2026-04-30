@@ -1,6 +1,8 @@
 from flask import Flask, render_template, request, jsonify
 import requests
 import os
+os.environ["API_KEY"] =
+os.getenv("API_KEY")
 
 app = Flask(__name__)
 
