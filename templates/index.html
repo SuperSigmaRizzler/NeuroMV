@@ -3,80 +3,40 @@
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NeuroMV</title>
-
-<style>
-body{
-background:#0f172a;
-color:white;
-font-family:Arial;
-padding:20px;
-}
-
-#chat{
-height:400px;
-overflow-y:auto;
-background:#1e293b;
-padding:15px;
-border-radius:10px;
-margin-bottom:10px;
-}
-
-input{
-width:70%;
-padding:10px;
-border-radius:8px;
-border:none;
-}
-
-button{
-padding:10px;
-border:none;
-border-radius:8px;
-background:#22c55e;
-color:white;
-}
-
-.msg{
-margin:10px 0;
-}
-</style>
 </head>
+<body style="background:black;color:white;font-family:Arial;padding:20px;">
 
-<body>
+<h2>NeuroMV</h2>
 
-<h2>🤖 NeuroMV</h2>
+<div id="chat" style="height:300px;overflow:auto;border:1px solid gray;padding:10px;"></div>
+<br>
 
-<div id="chat"></div>
-
-<input id="msg" placeholder="Tulis pesan...">
-<button onclick="send()">Kirim</button>
+<input id="msg" placeholder="Ketik pesan..." style="width:70%;padding:10px;">
+<button onclick="sendMsg()">Kirim</button>
 
 <script>
-async function send(){
-let msg = document.getElementById("msg").value.trim();
-if(!msg) return;
+async function sendMsg(){
+    let msg = document.getElementById("msg").value;
 
-let chat = document.getElementById("chat");
+    if(!msg) return;
 
-chat.innerHTML += `<div class="msg"><b>Kamu:</b> ${msg}</div>`;
-document.getElementById("msg").value="";
+    document.getElementById("chat").innerHTML += "<p><b>Kamu:</b> "+msg+"</p>";
 
-try{
-let res = await fetch("/chat",{
-method:"POST",
-headers:{"Content-Type":"application/json"},
-body:JSON.stringify({message:msg})
-});
+    document.getElementById("msg").value = "";
 
-let data = await res.json();
+    let res = await fetch("/chat", {
+        method: "POST",
+        headers: {
+            "Content-Type":"application/json"
+        },
+        body: JSON.stringify({
+            message: msg
+        })
+    });
 
-chat.innerHTML += `<div class="msg"><b>NeuroMV:</b> ${data.reply}</div>`;
+    let data = await res.json();
 
-}catch(e){
-chat.innerHTML += `<div class="msg"><b>NeuroMV:</b> ❌ Error koneksi</div>`;
-}
-
-chat.scrollTop = chat.scrollHeight;
+    document.getElementById("chat").innerHTML += "<p><b>NeuroMV:</b> "+data.reply+"</p>";
 }
 </script>
 
