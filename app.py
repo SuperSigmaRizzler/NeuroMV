@@ -4,15 +4,9 @@ import os
 
 app = Flask(__name__)
 
-# 🔑 Ambil API key dari Railway
-API_KEY = os.getenv("API_KEY")
-
-# 🔥 DEBUG AWAL (cek di Logs Railway)
-print("=== DEBUG START ===")
-print("API_KEY:", API_KEY)
-print("=== DEBUG END ===")
-
 URL = "https://api.groq.com/openai/v1/chat/completions"
+
+print("=== APP START ===")
 
 @app.route("/")
 def home():
@@ -20,54 +14,47 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    user_input = request.json.get("message")
+    # ambil API key SAAT REQUEST
+    api_key = os.getenv("API_KEY")
 
-    # ❌ kalau API key belum kebaca
-    if not API_KEY:
-        return jsonify({"reply": "❌ API_KEY belum terbaca di server (cek Railway Variables)"})
+    print("REQUEST API_KEY EXISTS:", bool(api_key))
+
+    user_input = request.json.get("message", "")
+
+    if not api_key:
+        return jsonify({"reply": "❌ API_KEY belum terbaca di server (runtime)"}), 200
 
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
 
     payload = {
         "model": "llama-3.1-8b-instant",
         "messages": [
-            {"role": "system", "content": "You are NeuroMV. Reply naturally in user's language."},
+            {"role": "system", "content": "You are NeuroMV. Reply naturally in the user's language."},
             {"role": "user", "content": user_input}
         ]
     }
 
     try:
-        r = requests.post(URL, headers=headers, json=payload)
+        r = requests.post(URL, headers=headers, json=payload, timeout=30)
+        print("STATUS:", r.status_code)
+        print("TEXT:", r.text[:500])
 
-        # 🔥 DEBUG STATUS
-        print("STATUS CODE:", r.status_code)
-
-        # ❌ kalau API error
         if r.status_code != 200:
-            print("ERROR RESPONSE:", r.text)
-            return jsonify({"reply": f"❌ API Error: {r.text}"})
+            return jsonify({"reply": f"❌ API Error {r.status_code}: {r.text}"}), 200
 
         data = r.json()
-
-        # 🔥 DEBUG RESPONSE
-        print("RESPONSE:", data)
-
-        # ❌ kalau format aneh
-        if "choices" not in data:
-            return jsonify({"reply": f"❌ Response tidak valid: {data}"})
-
         reply = data["choices"][0]["message"]["content"]
 
-        return jsonify({"reply": reply})
+        return jsonify({"reply": reply}), 200
 
     except Exception as e:
-        print("SERVER ERROR:", str(e))
-        return jsonify({"reply": f"❌ Server Error: {str(e)}"})
+        print("EXCEPTION:", str(e))
+        return jsonify({"reply": f"❌ Server Error: {str(e)}"}), 200
 
 
-# 🔥 WAJIB UNTUK RAILWAY
-port = int(os.environ.get("PORT", 3000))
-app.run(host="0.0.0.0", port=port)
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
