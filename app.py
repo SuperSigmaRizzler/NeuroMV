@@ -10,35 +10,35 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    API_KEY = os.environ.get("API_KEY", "").strip()
+    api_key = os.environ.get("API_KEY", "").strip()
 
-    if not API_KEY:
-        return jsonify({"reply":"❌ API_KEY belum terbaca di server (runtime)"})
+    if not api_key:
+        return jsonify({"reply": "❌ API_KEY belum terbaca"})
 
-    msg = request.json["message"]
+    msg = request.json.get("message", "")
 
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
 
-    data = {
-        "model":"llama-3.1-8b-instant",
-        "messages":[
-            {"role":"user","content":msg}
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {"role": "user", "content": msg}
         ]
     }
 
     r = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
         headers=headers,
-        json=data
+        json=payload
     )
 
-    res = r.json()
+    data = r.json()
+    reply = data["choices"][0]["message"]["content"]
 
-    reply = res["choices"][0]["message"]["content"]
+    return jsonify({"reply": reply})
 
-    return jsonify({"reply":reply})
-
-app.run(host="0.0.0.0", port=int(os.environ.get("PORT",8080")))
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
