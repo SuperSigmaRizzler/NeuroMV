@@ -1,12 +1,8 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import requests
 import os
 
 app = Flask(__name__)
-
-URL = "https://api.groq.com/openai/v1/chat/completions"
-
-print("=== APP START ===")
 
 @app.route("/")
 def home():
@@ -14,47 +10,35 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    # ambil API key SAAT REQUEST
-    api_key = os.getenv("API_KEY")
+    API_KEY = os.environ.get("API_KEY", "").strip()
 
-    print("REQUEST API_KEY EXISTS:", bool(api_key))
+    if not API_KEY:
+        return jsonify({"reply":"❌ API_KEY belum terbaca di server (runtime)"})
 
-    user_input = request.json.get("message", "")
-
-    if not api_key:
-        return jsonify({"reply": "❌ API_KEY belum terbaca di server (runtime)"}), 200
+    msg = request.json["message"]
 
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
     }
 
-    payload = {
-        "model": "llama-3.1-8b-instant",
-        "messages": [
-            {"role": "system", "content": "You are NeuroMV. Reply naturally in the user's language."},
-            {"role": "user", "content": user_input}
+    data = {
+        "model":"llama-3.1-8b-instant",
+        "messages":[
+            {"role":"user","content":msg}
         ]
     }
 
-    try:
-        r = requests.post(URL, headers=headers, json=payload, timeout=30)
-        print("STATUS:", r.status_code)
-        print("TEXT:", r.text[:500])
+    r = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers=headers,
+        json=data
+    )
 
-        if r.status_code != 200:
-            return jsonify({"reply": f"❌ API Error {r.status_code}: {r.text}"}), 200
+    res = r.json()
 
-        data = r.json()
-        reply = data["choices"][0]["message"]["content"]
+    reply = res["choices"][0]["message"]["content"]
 
-        return jsonify({"reply": reply}), 200
+    return jsonify({"reply":reply})
 
-    except Exception as e:
-        print("EXCEPTION:", str(e))
-        return jsonify({"reply": f"❌ Server Error: {str(e)}"}), 200
-
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+app.run(host="0.0.0.0", port=int(os.environ.get("PORT",8080")))
