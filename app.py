@@ -2,12 +2,14 @@ from flask import Flask, request, jsonify, render_template
 import requests
 import os
 
-# Debug saat app pertama kali dibuka Gunicorn
+# Ambil API key SEKALI saat server boot
+API_KEY = os.getenv("API_KEY", "").strip()
+
 print("=== APP BOOTING ===")
-print("BOOT API_KEY =", repr(os.getenv("API_KEY")))
-print("ALL ENV KEYS =", list(os.environ.keys()))
+print("BOOT API_KEY =", repr(API_KEY))
 
 app = Flask(__name__)
+
 
 @app.route("/")
 def home():
@@ -16,23 +18,24 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    # Ambil API key setiap request
-    api_key = os.getenv("API_KEY", "").strip()
-
     print("=== CHAT REQUEST ===")
-    print("CHAT API_KEY =", repr(api_key))
 
-    # Kalau kosong
-    if not api_key:
+    # Kalau API key kosong
+    if not API_KEY:
         return jsonify({
-            "reply": "❌ API_KEY belum terbaca di server (runtime)"
+            "reply": "❌ API_KEY belum terbaca saat server boot"
         })
 
     # Ambil pesan user
-    msg = request.json.get("message", "")
+    msg = request.json.get("message", "").strip()
+
+    if not msg:
+        return jsonify({
+            "reply": "❌ Pesan kosong"
+        })
 
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
     }
 
@@ -58,6 +61,12 @@ def chat():
         print("RAW RESPONSE =", r.text)
 
         data = r.json()
+
+        # Kalau Groq kirim error
+        if "choices" not in data:
+            return jsonify({
+                "reply": f"❌ API Error: {data}"
+            })
 
         reply = data["choices"][0]["message"]["content"]
 
