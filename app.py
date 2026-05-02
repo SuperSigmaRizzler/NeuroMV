@@ -2,21 +2,25 @@ from flask import Flask, request, jsonify, render_template
 import requests
 import os
 
+# Debug saat app pertama kali dibuka Gunicorn
+print("=== APP BOOTING ===")
+print("BOOT API_KEY =", repr(os.getenv("API_KEY")))
+print("ALL ENV KEYS =", list(os.environ.keys()))
+
 app = Flask(__name__)
 
 @app.route("/")
 def home():
     return render_template("index.html")
 
+
 @app.route("/chat", methods=["POST"])
 def chat():
-    # Ambil API_KEY dari Railway Variables setiap request
-    api_key = os.environ.get("API_KEY", "").strip()
+    # Ambil API key setiap request
+    api_key = os.getenv("API_KEY", "").strip()
 
-    # Debug ke logs Railway
     print("=== CHAT REQUEST ===")
-    print("API_KEY VALUE:", api_key)
-    print("API_KEY LENGTH:", len(api_key))
+    print("CHAT API_KEY =", repr(api_key))
 
     # Kalau kosong
     if not api_key:
@@ -35,7 +39,10 @@ def chat():
     payload = {
         "model": "llama-3.1-8b-instant",
         "messages": [
-            {"role": "user", "content": msg}
+            {
+                "role": "user",
+                "content": msg
+            }
         ]
     }
 
@@ -47,8 +54,8 @@ def chat():
             timeout=30
         )
 
-        print("STATUS CODE:", r.status_code)
-        print("RAW RESPONSE:", r.text)
+        print("STATUS CODE =", r.status_code)
+        print("RAW RESPONSE =", r.text)
 
         data = r.json()
 
@@ -59,13 +66,15 @@ def chat():
         })
 
     except Exception as e:
-        print("ERROR:", str(e))
+        print("ERROR =", str(e))
+
         return jsonify({
             "reply": f"❌ AI error: {str(e)}"
         })
 
+
 if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8080))
+        port=int(os.getenv("PORT", 8080))
     )
