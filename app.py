@@ -1,29 +1,24 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, jsonify, request
 import os
 import requests
 
 app = Flask(__name__)
 
-
 @app.route("/")
 def home():
-    return render_template("index.html")
-
+    return "NeuroMV online 🚀"
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    print("=== CHAT REQUEST ===")
-
-    # Ambil API key saat request (lebih aman di Railway)
     API_KEY = os.getenv("API_KEY", "").strip()
 
     if not API_KEY:
         return jsonify({
-            "reply": "❌ API_KEY belum terbaca di server"
+            "reply": "❌ API_KEY tidak terbaca"
         })
 
-    # Ambil pesan user
-    msg = request.json.get("message", "").strip()
+    data = request.get_json(silent=True) or {}
+    msg = data.get("message", "").strip()
 
     if not msg:
         return jsonify({
@@ -38,10 +33,7 @@ def chat():
     payload = {
         "model": "llama-3.1-8b-instant",
         "messages": [
-            {
-                "role": "user",
-                "content": msg
-            }
+            {"role": "user", "content": msg}
         ]
     }
 
@@ -53,14 +45,14 @@ def chat():
             timeout=30
         )
 
-        data = r.json()
+        result = r.json()
 
-        if "choices" not in data:
+        if "choices" not in result:
             return jsonify({
-                "reply": f"❌ API Error: {data}"
+                "reply": f"❌ API Error: {result}"
             })
 
-        reply = data["choices"][0]["message"]["content"]
+        reply = result["choices"][0]["message"]["content"]
 
         return jsonify({
             "reply": reply
@@ -68,9 +60,9 @@ def chat():
 
     except Exception as e:
         return jsonify({
-            "reply": f"❌ AI Error: {str(e)}"
+            "reply": f"❌ Error: {str(e)}"
         })
 
-
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
