@@ -1,36 +1,77 @@
 let chatbox = document.getElementById("chatbox");
 let history = document.getElementById("history");
 
-function addMessage(text, cls){
-    chatbox.innerHTML += `<div class="msg ${cls}">${text}</div>`;
-    chatbox.scrollTop = chatbox.scrollHeight;
+let chats = JSON.parse(localStorage.getItem("neuro_chats") || "{}");
+let currentChat = null;
+
+function saveData(){
+    localStorage.setItem("neuro_chats", JSON.stringify(chats));
 }
 
-function typingEffect(text){
-    let div = document.createElement("div");
-    div.className = "msg bot";
-    chatbox.appendChild(div);
+function renderHistory(){
+    history.innerHTML = "";
 
-    let i = 0;
-    let interval = setInterval(()=>{
-        div.innerHTML += text.charAt(i);
-        i++;
-        chatbox.scrollTop = chatbox.scrollHeight;
+    for(let id in chats){
+        let div = document.createElement("div");
+        div.className = "history-item";
+        div.innerText = chats[id].title;
+        div.onclick = () => openChat(id);
+        history.prepend(div);
+    }
+}
 
-        if(i >= text.length){
-            clearInterval(interval);
-        }
-    },20);
+function newChat(){
+    let id = "chat_" + Date.now();
+
+    chats[id] = {
+        title:"New Chat",
+        messages:[]
+    };
+
+    currentChat = id;
+    saveData();
+    renderHistory();
+    renderMessages();
+}
+
+function openChat(id){
+    currentChat = id;
+    renderMessages();
+}
+
+function renderMessages(){
+    chatbox.innerHTML = "";
+
+    if(!currentChat) return;
+
+    chats[currentChat].messages.forEach(m=>{
+        chatbox.innerHTML += `
+        <div class="msg ${m.role}">
+            ${m.text}
+        </div>`;
+    });
+
+    chatbox.scrollTop = chatbox.scrollHeight;
 }
 
 async function sendMsg(){
     let input = document.getElementById("msg");
     let msg = input.value.trim();
 
-    if(!msg) return;
+    if(!msg || !currentChat) return;
 
-    addMessage(msg,"user");
-    saveHistory(msg);
+    chats[currentChat].messages.push({
+        role:"user",
+        text:msg
+    });
+
+    if(chats[currentChat].title === "New Chat"){
+        chats[currentChat].title = msg.substring(0,25);
+    }
+
+    saveData();
+    renderHistory();
+    renderMessages();
 
     input.value="";
 
@@ -46,16 +87,20 @@ async function sendMsg(){
 
     let data = await res.json();
 
-    typingEffect(data.reply);
+    chats[currentChat].messages.push({
+        role:"bot",
+        text:data.reply
+    });
+
+    saveData();
+    renderMessages();
 }
 
-function saveHistory(text){
-    let div = document.createElement("div");
-    div.className="history-item";
-    div.innerText=text.substring(0,25);
-    history.prepend(div);
-}
+renderHistory();
 
-function newChat(){
-    chatbox.innerHTML="";
+if(Object.keys(chats).length > 0){
+    currentChat = Object.keys(chats)[0];
+    renderMessages();
+} else {
+    newChat();
 }
