@@ -1,12 +1,6 @@
-from flask import Flask, request, jsonify, render_template
-import requests
+from flask import Flask, render_template, request, jsonify
 import os
-
-# Ambil API key SEKALI saat server boot
-API_KEY = os.getenv("API_KEY", "").strip()
-
-print("=== APP BOOTING ===")
-print("BOOT API_KEY =", repr(API_KEY))
+import requests
 
 app = Flask(__name__)
 
@@ -20,10 +14,12 @@ def home():
 def chat():
     print("=== CHAT REQUEST ===")
 
-    # Kalau API key kosong
+    # Ambil API key saat request (lebih aman di Railway)
+    API_KEY = os.getenv("API_KEY", "").strip()
+
     if not API_KEY:
         return jsonify({
-            "reply": "❌ API_KEY belum terbaca saat server boot"
+            "reply": "❌ API_KEY belum terbaca di server"
         })
 
     # Ambil pesan user
@@ -57,12 +53,8 @@ def chat():
             timeout=30
         )
 
-        print("STATUS CODE =", r.status_code)
-        print("RAW RESPONSE =", r.text)
-
         data = r.json()
 
-        # Kalau Groq kirim error
         if "choices" not in data:
             return jsonify({
                 "reply": f"❌ API Error: {data}"
@@ -75,15 +67,10 @@ def chat():
         })
 
     except Exception as e:
-        print("ERROR =", str(e))
-
         return jsonify({
-            "reply": f"❌ AI error: {str(e)}"
+            "reply": f"❌ AI Error: {str(e)}"
         })
 
 
 if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", 8080))
-    )
+    app.run(host="0.0.0.0", port=5000)
