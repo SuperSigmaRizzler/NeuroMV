@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, render_template, request, jsonify
 import os
 import requests
 
@@ -6,24 +6,20 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "NeuroMV online 🚀"
+    return render_template("index.html")
 
 @app.route("/chat", methods=["POST"])
 def chat():
     API_KEY = os.getenv("API_KEY", "").strip()
 
     if not API_KEY:
-        return jsonify({
-            "reply": "❌ API_KEY tidak terbaca"
-        })
+        return jsonify({"reply": "❌ API_KEY tidak terbaca"})
 
     data = request.get_json(silent=True) or {}
     msg = data.get("message", "").strip()
 
     if not msg:
-        return jsonify({
-            "reply": "❌ Pesan kosong"
-        })
+        return jsonify({"reply": "❌ Pesan kosong"})
 
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -48,21 +44,11 @@ def chat():
         result = r.json()
 
         if "choices" not in result:
-            return jsonify({
-                "reply": f"❌ API Error: {result}"
-            })
+            return jsonify({"reply": f"❌ API Error: {result}"})
 
         reply = result["choices"][0]["message"]["content"]
 
-        return jsonify({
-            "reply": reply
-        })
+        return jsonify({"reply": reply})
 
     except Exception as e:
-        return jsonify({
-            "reply": f"❌ Error: {str(e)}"
-        })
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+        return jsonify({"reply": f"❌ Error: {str(e)}"})

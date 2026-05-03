@@ -1,45 +1,28 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NeuroMV Debug</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>NeuroMV</title>
+<link rel="stylesheet" href="/static/style.css">
 </head>
-<body style="background:black;color:white;font-family:Arial;padding:20px;">
+<body>
 
-<h2>NeuroMV Pengen Ditampar</h2>
+<div class="sidebar">
+    <h2>⚡ NeuroMV</h2>
+    <button onclick="newChat()">+ New Chat</button>
+    <div id="history"></div>
+</div>
 
-<div id="chat" style="height:300px;overflow:auto;border:1px solid gray;padding:10px;"></div>
-<br>
+<div class="main">
+    <div id="chatbox"></div>
 
-<input id="msg" placeholder="Ketik pesan..." style="width:70%;padding:10px;">
-<button onclick="sendMsg()">Kirim</button>
+    <div class="input-area">
+        <input type="text" id="msg" placeholder="Tulis pesan...">
+        <button onclick="sendMsg()">Kirim</button>
+    </div>
+</div>
 
-<script>
-async function sendMsg(){
-    let msg = document.getElementById("msg").value;
-
-    document.getElementById("chat").innerHTML += "<p>Klik terdeteksi</p>";
-
-    try{
-        let res = await fetch("/chat", {
-            method:"POST",
-            headers:{
-                "Content-Type":"application/json"
-            },
-            body: JSON.stringify({message: msg})
-        });
-
-        document.getElementById("chat").innerHTML += "<p>Status: "+res.status+"</p>";
-
-        let text = await res.text();
-
-        document.getElementById("chat").innerHTML += "<p>Raw: "+text+"</p>";
-
-    }catch(e){
-        document.getElementById("chat").innerHTML += "<p>ERROR: "+e+"</p>";
-    }
-}
-</script>
-
+<script src="/static/script.js"></script>
 </body>
 </html>
