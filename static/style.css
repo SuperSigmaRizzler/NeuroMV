@@ -1,61 +1,94 @@
-let chatbox = document.getElementById("chatbox");
-let history = document.getElementById("history");
-
-function addMessage(text, cls){
-    chatbox.innerHTML += `<div class="msg ${cls}">${text}</div>`;
-    chatbox.scrollTop = chatbox.scrollHeight;
+body{
+margin:0;
+font-family:Arial;
+display:flex;
+height:100vh;
+background:#0b0f19;
+color:white;
 }
 
-function typingEffect(text){
-    let div = document.createElement("div");
-    div.className = "msg bot";
-    chatbox.appendChild(div);
-
-    let i = 0;
-    let interval = setInterval(()=>{
-        div.innerHTML += text.charAt(i);
-        i++;
-        chatbox.scrollTop = chatbox.scrollHeight;
-
-        if(i >= text.length){
-            clearInterval(interval);
-        }
-    },20);
+.sidebar{
+width:260px;
+background:#111827;
+padding:20px;
+border-right:1px solid #222;
+overflow-y:auto;
 }
 
-async function sendMsg(){
-    let input = document.getElementById("msg");
-    let msg = input.value.trim();
-
-    if(!msg) return;
-
-    addMessage(msg,"user");
-    saveHistory(msg);
-
-    input.value="";
-
-    let res = await fetch("/chat",{
-        method:"POST",
-        headers:{
-            "Content-Type":"application/json"
-        },
-        body:JSON.stringify({
-            message:msg
-        })
-    });
-
-    let data = await res.json();
-
-    typingEffect(data.reply);
+.sidebar h2{
+margin-top:0;
+color:#00ffd5;
 }
 
-function saveHistory(text){
-    let div = document.createElement("div");
-    div.className="history-item";
-    div.innerText=text.substring(0,25);
-    history.prepend(div);
+.sidebar button{
+width:100%;
+padding:12px;
+border:none;
+background:#00ffd5;
+color:black;
+font-weight:bold;
+border-radius:10px;
+cursor:pointer;
+margin-bottom:15px;
 }
 
-function newChat(){
-    chatbox.innerHTML="";
+.history-item{
+padding:10px;
+background:#1f2937;
+margin-bottom:8px;
+border-radius:8px;
+cursor:pointer;
+}
+
+.main{
+flex:1;
+display:flex;
+flex-direction:column;
+}
+
+#chatbox{
+flex:1;
+padding:20px;
+overflow-y:auto;
+}
+
+.msg{
+max-width:75%;
+padding:12px;
+margin:10px 0;
+border-radius:12px;
+line-height:1.5;
+}
+
+.user{
+background:#2563eb;
+margin-left:auto;
+}
+
+.bot{
+background:#1e293b;
+}
+
+.input-area{
+display:flex;
+padding:15px;
+background:#111827;
+}
+
+input{
+flex:1;
+padding:14px;
+border:none;
+border-radius:10px;
+font-size:16px;
+}
+
+.input-area button{
+margin-left:10px;
+padding:14px 20px;
+background:#00ffd5;
+border:none;
+border-radius:10px;
+font-weight:bold;
+cursor:pointer;
 }
