@@ -24,9 +24,7 @@ def chat():
 
     image_text = ""
 
-    # =========================
-    # IMAGE PROCESS (OCR)
-    # =========================
+    # ================= IMAGE OCR =================
     if file:
         filename = secure_filename(file.filename)
         path = os.path.join(UPLOAD_FOLDER, filename)
@@ -38,18 +36,14 @@ def chat():
         except:
             image_text = ""
 
-    # =========================
-    # PROMPT KE AI
-    # =========================
+    # ================= PROMPT =================
     prompt = f"""
-Kamu adalah AI santai seperti teman ngobrol.
+Jawab santai seperti teman.
 
-Jawab dengan bahasa gaul, tidak terlalu formal.
-
-User message:
+User:
 {msg}
 
-Teks dari gambar (jika ada):
+Teks dari gambar:
 {image_text}
 """
 
@@ -61,8 +55,7 @@ Teks dari gambar (jika ada):
                 "Content-Type": "application/json"
             },
             json={
-                # model free yang stabil (hindari 404 choices error)
-                "model": "meta-llama/llama-3.1-8b-instruct",
+                "model": "mistralai/mistral-7b-instruct",
                 "messages": [
                     {"role": "user", "content": prompt}
                 ]
@@ -71,9 +64,7 @@ Teks dari gambar (jika ada):
 
         data = r.json()
 
-        # =========================
-        # SAFE CHECK (biar tidak error 'choices')
-        # =========================
+        # ================= SAFE CHECK =================
         if "choices" in data:
             reply = data["choices"][0]["message"]["content"]
         else:

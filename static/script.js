@@ -10,7 +10,6 @@ if(!currentChat || !chats[currentChat]){
     saveAll();
 }
 
-/* ================= SAVE ================= */
 function saveAll(){
     localStorage.setItem("chats", JSON.stringify(chats));
     localStorage.setItem("current_chat", currentChat);
@@ -35,7 +34,7 @@ function renderChats(){
     });
 }
 
-/* ================= SWITCH CHAT ================= */
+/* ================= SWITCH ================= */
 function switchChat(name){
     currentChat = name;
     saveAll();
@@ -58,7 +57,7 @@ function newChat(){
     loadChat();
 }
 
-/* ================= DELETE CHAT ================= */
+/* ================= DELETE ================= */
 function deleteChat(name){
     delete chats[name];
 
@@ -82,7 +81,6 @@ function loadChat(){
     box.innerHTML = "";
 
     let chat = chats[currentChat];
-
     if(!chat) return;
 
     chat.messages.forEach(m => {
@@ -90,7 +88,7 @@ function loadChat(){
     });
 }
 
-/* ================= MESSAGE UI ================= */
+/* ================= MESSAGE ================= */
 function addMsgUI(text, role, save=true){
     const box = document.getElementById("chatbox");
 
@@ -99,12 +97,10 @@ function addMsgUI(text, role, save=true){
 
     box.appendChild(div);
 
-    // USER langsung tampil
     if(role === "user"){
         div.innerText = text;
     }
 
-    // BOT pakai typing effect
     if(role === "bot"){
         typeText(div, text);
     }
@@ -128,10 +124,10 @@ function typeText(element, text){
         if(i >= text.length){
             clearInterval(interval);
         }
-    }, 15); // semakin kecil = makin cepat
+    }, 15);
 }
 
-/* ================= SEND MESSAGE ================= */
+/* ================= SEND ================= */
 async function sendMsg(){
     let msg = document.getElementById("msg").value;
     let file = document.getElementById("fileInput").files[0];
@@ -140,7 +136,6 @@ async function sendMsg(){
 
     let chat = chats[currentChat];
 
-    // AUTO TITLE
     if(chat.messages.length === 0){
         chat.title = msg.slice(0, 30) || "Chat Baru";
     }
@@ -150,7 +145,7 @@ async function sendMsg(){
 
     if(file){
         formData.append("file", file);
-        addMsgUI("[image uploaded]", "user");
+        addMsgUI("[image]", "user");
     }
 
     if(msg){
@@ -169,13 +164,6 @@ async function sendMsg(){
     addMsgUI(data.reply, "bot");
 
     document.getElementById("fileInput").value = "";
-}
-
-/* ================= CLEAR CHAT ================= */
-function clearChat(){
-    chats[currentChat].messages = [];
-    saveAll();
-    loadChat();
 }
 
 /* ================= INIT ================= */
