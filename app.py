@@ -1,12 +1,15 @@
 from flask import Flask, render_template, request, jsonify
-import requests, os, base64
+import os
+from werkzeug.utils import secure_filename
 from PIL import Image
 import pytesseract
-from werkzeug.utils import secure_filename
+import requests
 
 app = Flask(__name__)
+
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
 
 @app.route("/")
 def home():
@@ -15,16 +18,14 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    api_key = os.getenv("OPENROUTER_API_KEY","").strip()
-
-    msg = request.form.get("message","")
+    msg = request.form.get("message", "")
     file = request.files.get("file")
 
     image_text = ""
 
-    # =========================
-    # 1. OCR IMAGE (GRATIS)
-    # =========================
+    # ======================
+    # IMAGE PROCESS (OCR)
+    # ======================
     if file:
         filename = secure_filename(file.filename)
         path = os.path.join(UPLOAD_FOLDER, filename)
@@ -36,50 +37,42 @@ def chat():
         except:
             image_text = ""
 
-    # =========================
-    # 2. REQUEST KE AI GRATIS
-    # =========================
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-
+    # ======================
+    # AI REQUEST (FREE MODEL)
+    # ======================
     prompt = f"""
-Kamu adalah AI santai bernama NeuroMV.
-Jawab dengan bahasa gaul dan tidak formal.
+Kamu AI santai, jawab bahasa gaul.
 
-User message:
+User:
 {msg}
 
-Text dari gambar (jika ada):
+Teks dari gambar:
 {image_text}
 """
-
-    payload = {
-        "model": "meta-llama/llama-3.1-8b-instruct:free",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ]
-    }
 
     try:
         r = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=60
+            headers={
+                "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY','')}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "meta-llama/llama-3.1-8b-instruct",
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ]
+            }
         )
 
         data = r.json()
 
-        if "choices" not in data:
-            return jsonify({"reply": f"❌ API Error: {data}"})
-
         reply = data["choices"][0]["message"]["content"]
+
         return jsonify({"reply": reply})
 
     except Exception as e:
-        return jsonify({"reply": f"❌ Error: {str(e)}"})
+        return jsonify({"reply": f"Error: {str(e)}"})
 
 
 if __name__ == "__main__":
