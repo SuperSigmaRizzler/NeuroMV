@@ -1,173 +1,207 @@
-let chats = JSON.parse(localStorage.getItem("chats")) || {};
-let currentChat = localStorage.getItem("current_chat");
+const chatbox = document.getElementById("chatbox");
+const fileInput = document.getElementById("fileInput");
+const preview = document.getElementById("preview");
+const msgInput = document.getElementById("msg");
+const historyDiv = document.getElementById("history");
 
-if(!currentChat || !chats[currentChat]){
-    currentChat = "Chat 1";
-    chats[currentChat] = {
-        title: "Chat Baru",
-        messages: []
-    };
-    saveAll();
+let chats = JSON.parse(localStorage.getItem("neuro_chats")) || [];
+let currentChat = null;
+
+/* ================= LOAD ================= */
+
+function saveChats(){
+    localStorage.setItem("neuro_chats", JSON.stringify(chats));
 }
 
-function saveAll(){
-    localStorage.setItem("chats", JSON.stringify(chats));
-    localStorage.setItem("current_chat", currentChat);
-}
+function renderHistory(){
+    historyDiv.innerHTML = "";
 
-/* ================= SIDEBAR ================= */
-function renderChats(){
-    const list = document.getElementById("chatList");
-    list.innerHTML = "";
-
-    Object.keys(chats).forEach(name => {
-        let chat = chats[name];
-
+    chats.forEach(chat=>{
         let div = document.createElement("div");
-
+        div.className = "chat-item";
         div.innerHTML = `
-            <span onclick="switchChat('${name}')">${chat.title}</span>
-            <button onclick="deleteChat('${name}')">x</button>
+            <span onclick="loadChat('${chat.id}')">${chat.id}</span>
+            <button onclick="deleteChat('${chat.id}')">x</button>
         `;
-
-        list.appendChild(div);
+        historyDiv.appendChild(div);
     });
 }
 
-/* ================= SWITCH ================= */
-function switchChat(name){
-    currentChat = name;
-    saveAll();
-    loadChat();
-}
+/* ================= CHAT ================= */
 
-/* ================= NEW CHAT ================= */
 function newChat(){
-    let name = "Chat " + Date.now();
+    let id = "Chat " + (chats.length + 1);
 
-    chats[name] = {
-        title: "Chat Baru",
+    let chat = {
+        id: id,
         messages: []
     };
 
-    currentChat = name;
+    chats.push(chat);
+    currentChat = chat;
 
-    saveAll();
-    renderChats();
-    loadChat();
+    saveChats();
+    renderHistory();
+
+    chatbox.innerHTML = "";
 }
 
-/* ================= DELETE ================= */
-function deleteChat(name){
-    delete chats[name];
-
-    if(Object.keys(chats).length === 0){
-        newChat();
-        return;
-    }
-
-    if(currentChat === name){
-        currentChat = Object.keys(chats)[0];
-    }
-
-    saveAll();
-    renderChats();
-    loadChat();
-}
-
-/* ================= LOAD CHAT ================= */
-function loadChat(){
-    const box = document.getElementById("chatbox");
-    box.innerHTML = "";
-
-    let chat = chats[currentChat];
+function loadChat(id){
+    let chat = chats.find(c => c.id === id);
     if(!chat) return;
 
-    chat.messages.forEach(m => {
-        addMsgUI(m.text, m.role, false);
+    currentChat = chat;
+
+    chatbox.innerHTML = "";
+
+    chat.messages.forEach(msg=>{
+        if(msg.type === "text"){
+            addMsg(msg.content, msg.role, false);
+        }else if(msg.type === "image"){
+            addImage(msg.content, msg.role, false);
+        }
     });
 }
 
-/* ================= MESSAGE ================= */
-function addMsgUI(text, role, save=true){
-    const box = document.getElementById("chatbox");
+function deleteChat(id){
+    chats = chats.filter(c => c.id !== id);
 
+    saveChats();
+    renderHistory();
+
+    chatbox.innerHTML = "";
+}
+
+/* ================= UI ================= */
+
+function addMsg(text, role, save=true){
     let div = document.createElement("div");
     div.className = "msg " + role;
+    div.innerText = text;
+    chatbox.appendChild(div);
 
-    box.appendChild(div);
+    chatbox.scrollTop = chatbox.scrollHeight;
 
-    if(role === "user"){
-        div.innerText = text;
-    }
-
-    if(role === "bot"){
-        typeText(div, text);
-    }
-
-    if(save){
-        chats[currentChat].messages.push({text, role});
-        saveAll();
+    if(save && currentChat){
+        currentChat.messages.push({
+            role: role,
+            type: "text",
+            content: text
+        });
+        saveChats();
     }
 }
 
-/* ================= TYPING EFFECT ================= */
-function typeText(element, text){
-    element.innerText = "";
+function addImage(src, role, save=true){
+    let div = document.createElement("div");
+    div.className = "msg " + role;
+    div.innerHTML = `<img src="${src}">`;
+    chatbox.appendChild(div);
 
-    let i = 0;
+    chatbox.scrollTop = chatbox.scrollHeight;
 
-    let interval = setInterval(() => {
-        element.innerText += text[i];
-        i++;
-
-        if(i >= text.length){
-            clearInterval(interval);
-        }
-    }, 15);
+    if(save && currentChat){
+        currentChat.messages.push({
+            role: role,
+            type: "image",
+            content: src
+        });
+        saveChats();
+    }
 }
 
 /* ================= SEND ================= */
+
 async function sendMsg(){
-    let msg = document.getElementById("msg").value;
-    let file = document.getElementById("fileInput").files[0];
+    let msg = msgInput.value.trim();
+    let file = fileInput.files[0];
 
     if(!msg && !file) return;
 
-    let chat = chats[currentChat];
-
-    if(chat.messages.length === 0){
-        chat.title = msg.slice(0, 30) || "Chat Baru";
+    if(!currentChat){
+        newChat();
     }
+
+    if(msg) addMsg(msg, "user");
+
+    if(file){
+        let url = URL.createObjectURL(file);
+        addImage(url, "user");
+    }
+
+    msgInput.value="";
+    preview.innerText="";
+
+    let loading = document.createElement("div");
+    loading.className="msg bot";
+    loading.id="loading";
+    loading.innerText="NeuroMV lagi mikir...";
+    chatbox.appendChild(loading);
 
     let formData = new FormData();
     formData.append("message", msg);
+    if(file) formData.append("file", file);
 
-    if(file){
-        formData.append("file", file);
-        addMsgUI("[image]", "user");
+    try{
+        let res = await fetch("/chat",{method:"POST",body:formData});
+        let data = await res.json();
+
+        document.getElementById("loading").remove();
+
+        typeEffect(data.reply);
+
+    }catch{
+        document.getElementById("loading").remove();
+        addMsg("Error server 😭","bot");
     }
 
-    if(msg){
-        addMsgUI(msg, "user");
-    }
-
-    document.getElementById("msg").value = "";
-
-    let res = await fetch("/chat", {
-        method:"POST",
-        body:formData
-    });
-
-    let data = await res.json();
-
-    addMsgUI(data.reply, "bot");
-
-    document.getElementById("fileInput").value = "";
+    fileInput.value="";
 }
 
+/* ================= TYPING ================= */
+
+function typeEffect(text){
+    let div = document.createElement("div");
+    div.className="msg bot";
+    chatbox.appendChild(div);
+
+    let i=0;
+
+    function typing(){
+        if(i<text.length){
+            div.innerText+=text.charAt(i);
+            i++;
+            chatbox.scrollTop=chatbox.scrollHeight;
+            setTimeout(typing,15);
+        }else{
+            if(currentChat){
+                currentChat.messages.push({
+                    role:"bot",
+                    type:"text",
+                    content:text
+                });
+                saveChats();
+            }
+        }
+    }
+
+    typing();
+}
+
+/* ================= EVENTS ================= */
+
+msgInput.addEventListener("keypress",(e)=>{
+    if(e.key==="Enter") sendMsg();
+});
+
+fileInput.addEventListener("change",()=>{
+    if(fileInput.files.length>0){
+        preview.innerText="📎 "+fileInput.files[0].name;
+    }else{
+        preview.innerText="";
+    }
+});
+
 /* ================= INIT ================= */
-window.onload = () => {
-    renderChats();
-    loadChat();
-};
+
+renderHistory();

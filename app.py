@@ -1,58 +1,36 @@
 from flask import Flask, render_template, request, jsonify
-import os
-import requests
+import requests, os, base64
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-
-# API KEY GROQ
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-# MODEL PALING STABLE SAAT INI
-MODEL = "llama-3.1-8b-instant"
-
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 @app.route("/")
 def home():
     return render_template("index.html")
 
-
 @app.route("/chat", methods=["POST"])
 def chat():
+    api_key = os.getenv("OPENROUTER_API_KEY","").strip()
 
-    msg = request.form.get("message", "")
+    if not api_key:
+        return jsonify({"reply":"API key belum terpasang."})
 
-    if not GROQ_API_KEY:
-        return jsonify({"reply": "❌ API key belum di-set di server"})
+    msg = request.form.get("message","Jelaskan gambar ini dengan santai.")
+    file = request.files.get("file")
 
-    try:
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": MODEL,
-                "messages": [
-                    {"role": "user", "content": msg}
-                ],
-                "temperature": 0.7
-            }
-        )
+    image_content = None
 
-        data = response.json()
+    if file:
+        filename = secure_filename(file.filename)
+        path = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(path)
 
-        # SAFE CHECK biar gak error "choices"
-        if "choices" in data:
-            reply = data["choices"][0]["message"]["content"]
-        else:
-            return jsonify({"reply": f"❌ API Error: {data}"})
+        with open(path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-        return jsonify({"reply": reply})
-
-    except Exception as e:
-        return jsonify({"reply": f"❌ Server Error: {str(e)}"})
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+        image_content = {
+            "type":"image_url",
+            "image_url":{
+                "url":f"data
