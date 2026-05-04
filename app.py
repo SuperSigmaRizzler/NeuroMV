@@ -1,7 +1,5 @@
 from flask import Flask, render_template, request, jsonify
-import os
-from PIL import Image
-import pytesseract
+import requests, os, base64
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -14,40 +12,59 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    msg = request.form.get("message", "").strip()
+    api_key = os.getenv("OPENROUTER_API_KEY","").strip()
+    msg = request.form.get("message","Jelaskan gambar ini")
     file = request.files.get("file")
 
-    if file and file.filename:
-        filename = secure_filename(file.filename)
-        path = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(path)
+    if not file:
+        return jsonify({"reply":"❌ Upload gambar dulu."})
 
-        try:
-            img = Image.open(path)
-            text = pytesseract.image_to_string(img)
+    filename = secure_filename(file.filename)
+    path = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(path)
 
-            if text.strip():
-                return jsonify({
-                    "reply": "📸 Teks pada gambar:\n\n" + text
-                })
-            else:
-                return jsonify({
-                    "reply": "📸 Gambar diterima, tapi tidak ada teks terdeteksi."
-                })
+    with open(path, "rb") as f:
+        img_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-        except Exception as e:
-            return jsonify({
-                "reply": f"❌ Gagal membaca gambar: {str(e)}"
-            })
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
 
-    if msg:
-        return jsonify({
-            "reply": "Kamu bilang: " + msg
-        })
+    payload = {
+        "model": "openai/gpt-4o-mini",
+        "messages": [
+            {
+                "role":"user",
+                "content":[
+                    {"type":"text","text":msg},
+                    {
+                        "type":"image_url",
+                        "image_url":{
+                            "url":f"data:image/jpeg;base64,{img_b64}"
+                        }
+                    }
+                ]
+            }
+        ]
+    }
 
-    return jsonify({
-        "reply":"❌ Tidak ada input"
-    })
+    try:
+        r = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+
+        data = r.json()
+
+        reply = data["choices"][0]["message"]["content"]
+
+        return jsonify({"reply": reply})
+
+    except Exception as e:
+        return jsonify({"reply": f"❌ Error: {str(e)}"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
