@@ -11,13 +11,22 @@ function saveData(){
 function renderHistory(){
     history.innerHTML = "";
 
-    for(let id in chats){
+    let keys = Object.keys(chats).reverse();
+
+    keys.forEach(id => {
         let div = document.createElement("div");
         div.className = "history-item";
-        div.innerText = chats[id].title;
-        div.onclick = () => openChat(id);
-        history.prepend(div);
-    }
+
+        div.innerHTML = `
+            <span class="chat-title" onclick="openChat('${id}')">
+                ${chats[id].title}
+            </span>
+
+            <button onclick="deleteChat('${id}')">🗑️</button>
+        `;
+
+        history.appendChild(div);
+    });
 }
 
 function newChat(){
@@ -29,6 +38,7 @@ function newChat(){
     };
 
     currentChat = id;
+
     saveData();
     renderHistory();
     renderMessages();
@@ -39,16 +49,40 @@ function openChat(id){
     renderMessages();
 }
 
+function deleteChat(id){
+    if(!confirm("Hapus chat ini?")) return;
+
+    delete chats[id];
+
+    if(currentChat === id){
+        currentChat = null;
+        chatbox.innerHTML = "";
+    }
+
+    saveData();
+    renderHistory();
+
+    let keys = Object.keys(chats);
+
+    if(keys.length > 0){
+        currentChat = keys[keys.length - 1];
+        renderMessages();
+    } else {
+        newChat();
+    }
+}
+
 function renderMessages(){
     chatbox.innerHTML = "";
 
     if(!currentChat) return;
 
-    chats[currentChat].messages.forEach(m=>{
+    chats[currentChat].messages.forEach(msg => {
         chatbox.innerHTML += `
-        <div class="msg ${m.role}">
-            ${m.text}
-        </div>`;
+            <div class="msg ${msg.role}">
+                ${msg.text}
+            </div>
+        `;
     });
 
     chatbox.scrollTop = chatbox.scrollHeight;
@@ -75,6 +109,14 @@ async function sendMsg(){
 
     input.value="";
 
+    let loading = document.createElement("div");
+    loading.className = "msg bot";
+    loading.id = "loading";
+    loading.innerText = "Mengetik...";
+    chatbox.appendChild(loading);
+
+    chatbox.scrollTop = chatbox.scrollHeight;
+
     let res = await fetch("/chat",{
         method:"POST",
         headers:{
@@ -87,6 +129,8 @@ async function sendMsg(){
 
     let data = await res.json();
 
+    document.getElementById("loading").remove();
+
     chats[currentChat].messages.push({
         role:"bot",
         text:data.reply
@@ -98,8 +142,10 @@ async function sendMsg(){
 
 renderHistory();
 
-if(Object.keys(chats).length > 0){
-    currentChat = Object.keys(chats)[0];
+let keys = Object.keys(chats);
+
+if(keys.length > 0){
+    currentChat = keys[keys.length - 1];
     renderMessages();
 } else {
     newChat();
