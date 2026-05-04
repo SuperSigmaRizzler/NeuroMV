@@ -18,14 +18,15 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
+
     msg = request.form.get("message", "")
     file = request.files.get("file")
 
     image_text = ""
 
-    # ======================
+    # =========================
     # IMAGE PROCESS (OCR)
-    # ======================
+    # =========================
     if file:
         filename = secure_filename(file.filename)
         path = os.path.join(UPLOAD_FOLDER, filename)
@@ -37,16 +38,18 @@ def chat():
         except:
             image_text = ""
 
-    # ======================
-    # AI REQUEST (FREE MODEL)
-    # ======================
+    # =========================
+    # PROMPT KE AI
+    # =========================
     prompt = f"""
-Kamu AI santai, jawab bahasa gaul.
+Kamu adalah AI santai seperti teman ngobrol.
 
-User:
+Jawab dengan bahasa gaul, tidak terlalu formal.
+
+User message:
 {msg}
 
-Teks dari gambar:
+Teks dari gambar (jika ada):
 {image_text}
 """
 
@@ -58,6 +61,7 @@ Teks dari gambar:
                 "Content-Type": "application/json"
             },
             json={
+                # model free yang stabil (hindari 404 choices error)
                 "model": "meta-llama/llama-3.1-8b-instruct",
                 "messages": [
                     {"role": "user", "content": prompt}
@@ -67,12 +71,18 @@ Teks dari gambar:
 
         data = r.json()
 
-        reply = data["choices"][0]["message"]["content"]
+        # =========================
+        # SAFE CHECK (biar tidak error 'choices')
+        # =========================
+        if "choices" in data:
+            reply = data["choices"][0]["message"]["content"]
+        else:
+            return jsonify({"reply": f"❌ API Error: {data}"})
 
         return jsonify({"reply": reply})
 
     except Exception as e:
-        return jsonify({"reply": f"Error: {str(e)}"})
+        return jsonify({"reply": f"❌ Error: {str(e)}"})
 
 
 if __name__ == "__main__":
