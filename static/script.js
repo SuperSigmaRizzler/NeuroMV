@@ -1,98 +1,78 @@
-const chatbox = document.getElementById("chatbox");
-const fileInput = document.getElementById("fileInput");
-const preview = document.getElementById("preview");
-const msgInput = document.getElementById("msg");
+let chats = JSON.parse(localStorage.getItem("chats")) || {};
+let currentChat = localStorage.getItem("current_chat");
 
-/* Preview file */
-fileInput.addEventListener("change", () => {
-    if(fileInput.files.length > 0){
-        preview.innerText = "📎 " + fileInput.files[0].name;
-    } else {
-        preview.innerText = "";
-    }
-});
+/* buat chat pertama kalau belum ada */
+if(!currentChat){
+    currentChat = "Chat 1";
+    chats[currentChat] = "";
+}
 
-/* Bubble text */
+/* render sidebar */
+function renderChats(){
+    let list = document.getElementById("chatList");
+    list.innerHTML = "";
+
+    Object.keys(chats).forEach(name => {
+        let div = document.createElement("div");
+        div.innerText = name;
+        div.onclick = () => switchChat(name);
+        list.appendChild(div);
+    });
+}
+
+/* pindah chat */
+function switchChat(name){
+    currentChat = name;
+    localStorage.setItem("current_chat", name);
+    document.getElementById("chatbox").innerHTML = chats[name];
+}
+
+/* chat baru */
+function newChat(){
+    let name = "Chat " + (Object.keys(chats).length + 1);
+    chats[name] = "";
+    currentChat = name;
+    saveAll();
+    renderChats();
+    switchChat(name);
+}
+
+/* simpan */
+function saveAll(){
+    chats[currentChat] = document.getElementById("chatbox").innerHTML;
+    localStorage.setItem("chats", JSON.stringify(chats));
+    localStorage.setItem("current_chat", currentChat);
+}
+
+/* load awal */
+window.onload = () => {
+    renderChats();
+    switchChat(currentChat);
+};
+
+/* tambah pesan */
 function addMsg(text, role){
     let div = document.createElement("div");
     div.className = "msg " + role;
     div.innerText = text;
-    chatbox.appendChild(div);
-    chatbox.scrollTop = chatbox.scrollHeight;
+    document.getElementById("chatbox").appendChild(div);
+    saveAll();
 }
 
-/* Bubble image */
-function addImage(src, role){
-    let div = document.createElement("div");
-    div.className = "msg " + role;
-
-    div.innerHTML = `
-        <img src="${src}" style="max-width:100%; border-radius:14px;">
-    `;
-
-    chatbox.appendChild(div);
-    chatbox.scrollTop = chatbox.scrollHeight;
-}
-
-/* Send */
+/* kirim */
 async function sendMsg(){
+    let msg = document.getElementById("msg").value;
+    if(!msg) return;
 
-    let msg = msgInput.value.trim();
-    let file = fileInput.files[0];
+    addMsg(msg, "user");
+    document.getElementById("msg").value = "";
 
-    if(!msg && !file) return;
+    let res = await fetch("/chat", {
+        method:"POST",
+        body:new URLSearchParams({message:msg})
+    });
 
-    if(msg){
-        addMsg(msg, "user");
-    }
+    let data = await res.json();
 
-    /* Kalau upload gambar tampil langsung */
-    if(file){
-        let localURL = URL.createObjectURL(file);
-        addImage(localURL, "user");
-    }
-
-    msgInput.value = "";
-    preview.innerText = "";
-
-    let loading = document.createElement("div");
-    loading.className = "msg bot";
-    loading.id = "loading";
-    loading.innerText = "NeuroMV sedang menganalisis...";
-    chatbox.appendChild(loading);
-
-    let formData = new FormData();
-    formData.append("message", msg);
-
-    if(file){
-        formData.append("file", file);
-    }
-
-    try{
-        let res = await fetch("/chat", {
-            method:"POST",
-            body:formData
-        });
-
-        let data = await res.json();
-
-        document.getElementById("loading").remove();
-
-        addMsg(data.reply, "bot");
-
-    }catch(err){
-
-        document.getElementById("loading").remove();
-
-        addMsg("❌ Gagal terhubung ke server.", "bot");
-    }
-
-    fileInput.value = "";
+    addMsg(data.reply, "bot");
 }
-
-/* Enter */
-msgInput.addEventListener("keypress", function(e){
-    if(e.key === "Enter"){
-        sendMsg();
-    }
-});
