@@ -12,7 +12,7 @@ fileInput.addEventListener("change", () => {
     }
 });
 
-/* Tambah bubble */
+/* Bubble text */
 function addMsg(text, role){
     let div = document.createElement("div");
     div.className = "msg " + role;
@@ -21,7 +21,20 @@ function addMsg(text, role){
     chatbox.scrollTop = chatbox.scrollHeight;
 }
 
-/* Kirim pesan */
+/* Bubble image */
+function addImage(src, role){
+    let div = document.createElement("div");
+    div.className = "msg " + role;
+
+    div.innerHTML = `
+        <img src="${src}" style="max-width:100%; border-radius:14px;">
+    `;
+
+    chatbox.appendChild(div);
+    chatbox.scrollTop = chatbox.scrollHeight;
+}
+
+/* Send */
 async function sendMsg(){
 
     let msg = msgInput.value.trim();
@@ -33,8 +46,10 @@ async function sendMsg(){
         addMsg(msg, "user");
     }
 
+    /* Kalau upload gambar tampil langsung */
     if(file){
-        addMsg("📷 Upload gambar: " + file.name, "user");
+        let localURL = URL.createObjectURL(file);
+        addImage(localURL, "user");
     }
 
     msgInput.value = "";
@@ -45,7 +60,6 @@ async function sendMsg(){
     loading.id = "loading";
     loading.innerText = "NeuroMV sedang menganalisis...";
     chatbox.appendChild(loading);
-    chatbox.scrollTop = chatbox.scrollHeight;
 
     let formData = new FormData();
     formData.append("message", msg);
@@ -56,8 +70,8 @@ async function sendMsg(){
 
     try{
         let res = await fetch("/chat", {
-            method: "POST",
-            body: formData
+            method:"POST",
+            body:formData
         });
 
         let data = await res.json();
@@ -76,7 +90,7 @@ async function sendMsg(){
     fileInput.value = "";
 }
 
-/* Enter untuk kirim */
+/* Enter */
 msgInput.addEventListener("keypress", function(e){
     if(e.key === "Enter"){
         sendMsg();

@@ -13,6 +13,10 @@ def home():
 @app.route("/chat", methods=["POST"])
 def chat():
     api_key = os.getenv("OPENROUTER_API_KEY","").strip()
+
+    if not api_key:
+        return jsonify({"reply":"❌ API key belum terbaca."})
+
     msg = request.form.get("message","Jelaskan gambar ini")
     file = request.files.get("file")
 
@@ -32,7 +36,7 @@ def chat():
     }
 
     payload = {
-        "model": "openai/gpt-4o-mini",
+        "model": "meta-llama/llama-3.2-11b-vision-instruct:free",
         "messages": [
             {
                 "role":"user",
@@ -41,7 +45,7 @@ def chat():
                     {
                         "type":"image_url",
                         "image_url":{
-                            "url":f"data:image/jpeg;base64,{img_b64}"
+                            "url": f"data:image/jpeg;base64,{img_b64}"
                         }
                     }
                 ]
@@ -54,10 +58,14 @@ def chat():
             "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
             json=payload,
-            timeout=60
+            timeout=90
         )
 
         data = r.json()
+        print(data)
+
+        if "choices" not in data:
+            return jsonify({"reply": f"❌ API Error: {data}"})
 
         reply = data["choices"][0]["message"]["content"]
 
