@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify
-import os, requests
+import os
+import requests
 from PIL import Image
 import pytesseract
 from werkzeug.utils import secure_filename
@@ -11,9 +12,11 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 
+
 @app.route("/")
 def home():
     return render_template("index.html")
+
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -26,9 +29,9 @@ def chat():
 
     extracted_text = ""
 
-    # =====================
-    # 🖼️ OCR MODE
-    # =====================
+    # ======================
+    # 🖼️ OCR (PYTESSERACT)
+    # ======================
     if file:
         try:
             filename = secure_filename(file.filename)
@@ -37,27 +40,34 @@ def chat():
 
             img = Image.open(path)
 
-            extracted_text = pytesseract.image_to_string(img)
+            # bikin lebih akurat
+            img = img.convert("L")
+
+            extracted_text = pytesseract.image_to_string(
+                img,
+                config="--psm 6"
+            )
 
         except Exception as e:
             return jsonify({"reply": f"❌ OCR Error: {str(e)}"})
 
-    # =====================
-    # 🧠 FINAL MESSAGE
-    # =====================
-    final_prompt = ""
-
-    if extracted_text:
+    # ======================
+    # 🧠 FINAL PROMPT
+    # ======================
+    if extracted_text.strip():
         final_prompt = f"""
-Ini hasil OCR dari gambar:
+Ini teks dari gambar:
 
 {extracted_text}
 
-Jelaskan dengan santai dan mudah dimengerti.
+Tolong jelaskan dengan santai dan gampang dimengerti.
 """
     else:
         final_prompt = msg
 
+    # ======================
+    # 💬 GROQ
+    # ======================
     try:
         r = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -76,6 +86,7 @@ Jelaskan dengan santai dan mudah dimengerti.
         )
 
         data = r.json()
+        print(data)
 
         if "choices" not in data:
             return jsonify({"reply": f"❌ API Error: {data}"})
