@@ -1,14 +1,30 @@
+const chatbox = document.getElementById("chatbox");
 const fileInput = document.getElementById("fileInput");
 const previewBox = document.getElementById("previewBox");
+const msgInput = document.getElementById("msg");
 
 let selectedFile = null;
 
-/* OPEN FILE */
+/* =========================
+   ENTER = SEND
+========================= */
+msgInput.addEventListener("keydown", function(e){
+    if(e.key === "Enter"){
+        e.preventDefault();
+        sendMsg();
+    }
+});
+
+/* =========================
+   OPEN FILE
+========================= */
 function openFile(){
     fileInput.click();
 }
 
-/* PREVIEW IMAGE */
+/* =========================
+   PREVIEW IMAGE
+========================= */
 fileInput.addEventListener("change", ()=>{
     if(fileInput.files.length > 0){
         selectedFile = fileInput.files[0];
@@ -24,19 +40,73 @@ fileInput.addEventListener("change", ()=>{
     }
 });
 
-/* REMOVE FILE */
+/* =========================
+   REMOVE FILE
+========================= */
 function removeFile(){
     selectedFile = null;
     fileInput.value = "";
     previewBox.innerHTML = "";
 }
 
-/* SEND MESSAGE */
+/* =========================
+   ADD TEXT MESSAGE
+========================= */
+function addMsg(text, sender){
+    let div = document.createElement("div");
+    div.className = "msg " + sender;
+    div.textContent = text;
+    chatbox.appendChild(div);
+    chatbox.scrollTop = chatbox.scrollHeight;
+}
+
+/* =========================
+   ADD IMAGE MESSAGE
+========================= */
+function addImage(src, sender){
+    let div = document.createElement("div");
+    div.className = "msg " + sender;
+
+    let img = document.createElement("img");
+    img.src = src;
+
+    div.appendChild(img);
+    chatbox.appendChild(div);
+    chatbox.scrollTop = chatbox.scrollHeight;
+}
+
+/* =========================
+   TYPING EFFECT
+========================= */
+function typeEffect(text){
+    let div = document.createElement("div");
+    div.className = "msg bot";
+    chatbox.appendChild(div);
+
+    let i = 0;
+
+    function typing(){
+        if(i < text.length){
+            div.textContent += text.charAt(i);
+            i++;
+            chatbox.scrollTop = chatbox.scrollHeight;
+            setTimeout(typing, 15);
+        }
+    }
+
+    typing();
+}
+
+/* =========================
+   SEND MESSAGE
+========================= */
 async function sendMsg(){
-    let msg = document.getElementById("msg").value.trim();
+
+    let msg = msgInput.value.trim();
 
     if(!msg && !selectedFile) return;
 
+    // tampilkan pesan user
     if(msg) addMsg(msg, "user");
 
     if(selectedFile){
@@ -44,7 +114,7 @@ async function sendMsg(){
         addImage(url, "user");
     }
 
-    document.getElementById("msg").value = "";
+    msgInput.value = "";
     previewBox.innerHTML = "";
 
     let formData = new FormData();
@@ -56,6 +126,7 @@ async function sendMsg(){
 
     selectedFile = null;
 
+    // loading
     let loading = document.createElement("div");
     loading.className = "msg bot";
     loading.innerText = "NeuroMV lagi mikir...";
@@ -68,12 +139,12 @@ async function sendMsg(){
         });
 
         let data = await res.json();
-        loading.remove();
 
+        loading.remove();
         typeEffect(data.reply);
 
     }catch{
         loading.remove();
-        addMsg("Error server 😭", "bot");
+        addMsg("❌ Error server", "bot");
     }
 }
