@@ -1,15 +1,10 @@
 from flask import Flask, render_template, request, jsonify
 import os
-from werkzeug.utils import secure_filename
-from PIL import Image
-import pytesseract
 import requests
 
 app = Flask(__name__)
 
-UPLOAD_FOLDER = "uploads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 @app.route("/")
 def home():
@@ -20,51 +15,25 @@ def home():
 def chat():
 
     msg = request.form.get("message", "")
-    file = request.files.get("file")
-
-    image_text = ""
-
-    # ================= IMAGE OCR =================
-    if file:
-        filename = secure_filename(file.filename)
-        path = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(path)
-
-        try:
-            img = Image.open(path)
-            image_text = pytesseract.image_to_string(img)
-        except:
-            image_text = ""
-
-    # ================= PROMPT =================
-    prompt = f"""
-Jawab santai seperti teman.
-
-User:
-{msg}
-
-Teks dari gambar:
-{image_text}
-"""
 
     try:
         r = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            "https://api.groq.com/openai/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY','')}",
+                "Authorization": f"Bearer {GROQ_API_KEY}",
                 "Content-Type": "application/json"
             },
             json={
-                "model": "mistralai/mistral-7b-instruct",
+                "model": "llama3-8b-8192",
                 "messages": [
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": msg}
                 ]
             }
         )
 
         data = r.json()
 
-        # ================= SAFE CHECK =================
+        # SAFE CHECK
         if "choices" in data:
             reply = data["choices"][0]["message"]["content"]
         else:
