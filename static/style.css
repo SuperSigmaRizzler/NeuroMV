@@ -1,132 +1,127 @@
-body{
-    margin:0;
-    font-family:sans-serif;
-    background: linear-gradient(135deg, #ffffff, #f3f4ff, #e0f7ff);
-    color:#1e293b;
+/* ================= GLOBAL ================= */
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: white;
+    height: 100vh;
+    display: flex;
 }
 
-/* APP LAYOUT */
-.app{
-    display:flex;
-    height:100vh;
-}
-
-/* SIDEBAR */
-.sidebar{
-    width:240px;
-    background: rgba(255,255,255,0.8);
+/* ================= SIDEBAR ================= */
+#sidebar {
+    width: 250px;
+    background: rgba(255,255,255,0.05);
     backdrop-filter: blur(10px);
-    border-right:1px solid #e2e8f0;
-    padding:10px;
+    padding: 10px;
+    overflow-y: auto;
+    border-right: 1px solid rgba(255,255,255,0.1);
 }
 
-/* BUTTON */
-.sidebar button{
-    width:100%;
-    padding:10px;
-    background: linear-gradient(135deg, #a5b4fc, #93c5fd);
-    border:none;
-    border-radius:12px;
-    cursor:pointer;
-    color:white;
-    font-weight:bold;
+#sidebar button {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: none;
+    border-radius: 8px;
+    background: #38bdf8;
+    color: black;
+    font-weight: bold;
+    cursor: pointer;
 }
 
-/* CHAT LIST */
-#chatList div{
-    padding:8px;
-    margin-top:5px;
-    border-radius:8px;
-    cursor:pointer;
-    background: rgba(255,255,255,0.6);
+#chatList div {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px;
+    margin: 5px 0;
+    background: rgba(255,255,255,0.08);
+    border-radius: 6px;
+    cursor: pointer;
 }
 
-#chatList div:hover{
-    background: #e0f2fe;
+/* ================= MAIN CHAT ================= */
+#main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
 }
 
-/* MAIN */
-.main{
-    flex:1;
-    display:flex;
-    flex-direction:column;
+/* ================= CHAT BOX ================= */
+#chatbox {
+    flex: 1;
+    padding: 15px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px; /* 🔥 biar ada jarak antar message */
 }
 
-/* HEADER */
-.header{
-    padding:15px;
-    font-weight:bold;
-    background: rgba(255,255,255,0.7);
-    border-bottom:1px solid #e2e8f0;
+/* ================= MESSAGE ================= */
+.msg {
+    padding: 12px 15px;
+    border-radius: 12px;
+    max-width: 70%;
+    white-space: pre-wrap;  /* 🔥 penting biar spasi & enter kebaca */
+    line-height: 1.5;       /* 🔥 biar tidak dempet */
+    word-wrap: break-word;
+    animation: fadeIn 0.2s ease-in;
 }
 
-/* CHATBOX */
-#chatbox{
-    flex:1;
-    padding:15px;
-    overflow-y:auto;
+/* USER MESSAGE */
+.user {
+    background: #38bdf8;
+    color: black;
+    align-self: flex-end;
+    box-shadow: 0 0 10px rgba(56,189,248,0.4);
 }
 
-/* MESSAGE BUBBLE */
-.msg{
-    margin:10px;
-    padding:12px;
-    border-radius:15px;
-    max-width:70%;
-    box-shadow:0 4px 10px rgba(0,0,0,0.05);
+/* BOT MESSAGE */
+.bot {
+    background: rgba(255,255,255,0.1);
+    align-self: flex-start;
+    border: 1px solid rgba(255,255,255,0.1);
 }
 
-/* USER */
-.user{
-    background: linear-gradient(135deg, #93c5fd, #a5b4fc);
-    color:white;
-    margin-left:auto;
+/* ================= INPUT AREA ================= */
+#inputArea {
+    display: flex;
+    padding: 10px;
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(10px);
 }
 
-/* BOT */
-.bot{
-    background:white;
-    border:1px solid #e2e8f0;
+#msg {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    border-radius: 8px;
+    outline: none;
 }
 
-/* INPUT AREA */
-.input-area{
-    display:flex;
-    padding:10px;
-    gap:10px;
-    background: rgba(255,255,255,0.7);
-    border-top:1px solid #e2e8f0;
+#inputArea button {
+    margin-left: 10px;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 8px;
+    background: #22c55e;
+    color: black;
+    font-weight: bold;
+    cursor: pointer;
 }
 
-/* PLUS BUTTON */
-.upload-btn{
-    width:42px;
-    height:42px;
-    border-radius:50%;
-    background: linear-gradient(135deg, #a5b4fc, #93c5fd);
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    cursor:pointer;
-    color:white;
-    font-size:20px;
+/* ================= ANIMATION ================= */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
-/* INPUT */
-input[type="text"]{
-    flex:1;
-    padding:12px;
-    border-radius:20px;
-    border:1px solid #cbd5e1;
-    outline:none;
+/* ================= SCROLLBAR (OPTIONAL NICE LOOK) ================= */
+::-webkit-scrollbar {
+    width: 6px;
 }
 
-/* SEND BUTTON */
-button{
-    padding:10px 15px;
-    border-radius:20px;
-    border:none;
-    background: linear-gradient(135deg, #93c5fd, #a5b4fc);
-    color:white;
-    cursor:pointer;
+::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.2);
+    border-radius: 10px;
 }
