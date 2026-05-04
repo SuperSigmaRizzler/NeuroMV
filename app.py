@@ -34,3 +34,4 @@ def chat():
             "type":"image_url",
             "image_url":{
                 "url":f"data
+            }
