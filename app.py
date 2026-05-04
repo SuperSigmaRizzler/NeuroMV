@@ -1,8 +1,12 @@
 from flask import Flask, render_template, request, jsonify
 import os
-import requests
+from PIL import Image
+import pytesseract
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 @app.route("/")
 def home():
@@ -10,45 +14,40 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    API_KEY = os.getenv("API_KEY", "").strip()
+    msg = request.form.get("message", "").strip()
+    file = request.files.get("file")
 
-    if not API_KEY:
-        return jsonify({"reply": "❌ API_KEY tidak terbaca"})
+    if file and file.filename:
+        filename = secure_filename(file.filename)
+        path = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(path)
 
-    data = request.get_json(silent=True) or {}
-    msg = data.get("message", "").strip()
+        try:
+            img = Image.open(path)
+            text = pytesseract.image_to_string(img)
 
-    if not msg:
-        return jsonify({"reply": "❌ Pesan kosong"})
+            if text.strip():
+                return jsonify({
+                    "reply": "📸 Teks pada gambar:\n\n" + text
+                })
+            else:
+                return jsonify({
+                    "reply": "📸 Gambar diterima, tapi tidak ada teks terdeteksi."
+                })
 
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
-    }
+        except Exception as e:
+            return jsonify({
+                "reply": f"❌ Gagal membaca gambar: {str(e)}"
+            })
 
-    payload = {
-        "model": "llama-3.1-8b-instant",
-        "messages": [
-            {"role": "user", "content": msg}
-        ]
-    }
+    if msg:
+        return jsonify({
+            "reply": "Kamu bilang: " + msg
+        })
 
-    try:
-        r = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
+    return jsonify({
+        "reply":"❌ Tidak ada input"
+    })
 
-        result = r.json()
-
-        if "choices" not in result:
-            return jsonify({"reply": f"❌ API Error: {result}"})
-
-        reply = result["choices"][0]["message"]["content"]
-
-        return jsonify({"reply": reply})
-
-    except Exception as e:
-        return jsonify({"reply": f"❌ Error: {str(e)}"})
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)

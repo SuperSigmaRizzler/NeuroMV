@@ -1,24 +1,26 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>NeuroMV</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeuroMV Vision</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
 <div class="sidebar">
     <h2>⚡ NeuroMV</h2>
-    <button onclick="newChat()">+ New Chat</button>
-    <div id="history"></div>
+    <p>Vision Gratis</p>
 </div>
 
 <div class="main">
     <div id="chatbox"></div>
 
+    <div id="preview"></div>
+
     <div class="input-area">
-        <input type="text" id="msg" placeholder="Tulis pesan...">
+        <input type="file" id="fileInput" accept="image/*">
+        <input type="text" id="msg" placeholder="Tulis pesan atau upload gambar...">
         <button onclick="sendMsg()">Kirim</button>
     </div>
 </div>

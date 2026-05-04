@@ -1,152 +1,84 @@
-let chatbox = document.getElementById("chatbox");
-let history = document.getElementById("history");
+const chatbox = document.getElementById("chatbox");
+const fileInput = document.getElementById("fileInput");
+const preview = document.getElementById("preview");
+const msgInput = document.getElementById("msg");
 
-let chats = JSON.parse(localStorage.getItem("neuro_chats") || "{}");
-let currentChat = null;
-
-function saveData(){
-    localStorage.setItem("neuro_chats", JSON.stringify(chats));
-}
-
-function renderHistory(){
-    history.innerHTML = "";
-
-    let keys = Object.keys(chats).reverse();
-
-    keys.forEach(id => {
-        let div = document.createElement("div");
-        div.className = "history-item";
-
-        div.innerHTML = `
-            <span class="chat-title" onclick="openChat('${id}')">
-                ${chats[id].title}
-            </span>
-
-            <button onclick="deleteChat('${id}')">🗑️</button>
-        `;
-
-        history.appendChild(div);
-    });
-}
-
-function newChat(){
-    let id = "chat_" + Date.now();
-
-    chats[id] = {
-        title:"New Chat",
-        messages:[]
-    };
-
-    currentChat = id;
-
-    saveData();
-    renderHistory();
-    renderMessages();
-}
-
-function openChat(id){
-    currentChat = id;
-    renderMessages();
-}
-
-function deleteChat(id){
-    if(!confirm("Hapus chat ini?")) return;
-
-    delete chats[id];
-
-    if(currentChat === id){
-        currentChat = null;
-        chatbox.innerHTML = "";
-    }
-
-    saveData();
-    renderHistory();
-
-    let keys = Object.keys(chats);
-
-    if(keys.length > 0){
-        currentChat = keys[keys.length - 1];
-        renderMessages();
+/* Preview file */
+fileInput.addEventListener("change", () => {
+    if(fileInput.files.length > 0){
+        preview.innerText = "📎 " + fileInput.files[0].name;
     } else {
-        newChat();
+        preview.innerText = "";
     }
-}
+});
 
-function renderMessages(){
-    chatbox.innerHTML = "";
-
-    if(!currentChat) return;
-
-    chats[currentChat].messages.forEach(msg => {
-        chatbox.innerHTML += `
-            <div class="msg ${msg.role}">
-                ${msg.text}
-            </div>
-        `;
-    });
-
+/* Tambah bubble */
+function addMsg(text, role){
+    let div = document.createElement("div");
+    div.className = "msg " + role;
+    div.innerText = text;
+    chatbox.appendChild(div);
     chatbox.scrollTop = chatbox.scrollHeight;
 }
 
+/* Kirim pesan */
 async function sendMsg(){
-    let input = document.getElementById("msg");
-    let msg = input.value.trim();
 
-    if(!msg || !currentChat) return;
+    let msg = msgInput.value.trim();
+    let file = fileInput.files[0];
 
-    chats[currentChat].messages.push({
-        role:"user",
-        text:msg
-    });
+    if(!msg && !file) return;
 
-    if(chats[currentChat].title === "New Chat"){
-        chats[currentChat].title = msg.substring(0,25);
+    if(msg){
+        addMsg(msg, "user");
     }
 
-    saveData();
-    renderHistory();
-    renderMessages();
+    if(file){
+        addMsg("📷 Upload gambar: " + file.name, "user");
+    }
 
-    input.value="";
+    msgInput.value = "";
+    preview.innerText = "";
 
     let loading = document.createElement("div");
     loading.className = "msg bot";
     loading.id = "loading";
-    loading.innerText = "Mengetik...";
+    loading.innerText = "NeuroMV sedang menganalisis...";
     chatbox.appendChild(loading);
-
     chatbox.scrollTop = chatbox.scrollHeight;
 
-    let res = await fetch("/chat",{
-        method:"POST",
-        headers:{
-            "Content-Type":"application/json"
-        },
-        body:JSON.stringify({
-            message:msg
-        })
-    });
+    let formData = new FormData();
+    formData.append("message", msg);
 
-    let data = await res.json();
+    if(file){
+        formData.append("file", file);
+    }
 
-    document.getElementById("loading").remove();
+    try{
+        let res = await fetch("/chat", {
+            method: "POST",
+            body: formData
+        });
 
-    chats[currentChat].messages.push({
-        role:"bot",
-        text:data.reply
-    });
+        let data = await res.json();
 
-    saveData();
-    renderMessages();
+        document.getElementById("loading").remove();
+
+        addMsg(data.reply, "bot");
+
+    }catch(err){
+
+        document.getElementById("loading").remove();
+
+        addMsg("❌ Gagal terhubung ke server.", "bot");
+    }
+
+    fileInput.value = "";
 }
 
-renderHistory();
-
-let keys = Object.keys(chats);
-
-if(keys.length > 0){
-    currentChat = keys[keys.length - 1];
-    renderMessages();
-} else {
-    newChat();
-}
+/* Enter untuk kirim */
+msgInput.addEventListener("keypress", function(e){
+    if(e.key === "Enter"){
+        sendMsg();
+    }
+});
