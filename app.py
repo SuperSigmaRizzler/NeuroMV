@@ -1,10 +1,15 @@
 from flask import Flask, render_template, request, jsonify
-import requests, os, base64
+import os, requests
+from PIL import Image
+import pytesseract
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 
 @app.route("/")
 def home():
@@ -12,26 +17,76 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    api_key = os.getenv("OPENROUTER_API_KEY","").strip()
 
-    if not api_key:
-        return jsonify({"reply":"API key belum terpasang."})
-
-    msg = request.form.get("message","Jelaskan gambar ini dengan santai.")
+    msg = request.form.get("message", "")
     file = request.files.get("file")
 
-    image_content = None
+    if not GROQ_API_KEY:
+        return jsonify({"reply": "❌ API key belum di-set"})
 
+    extracted_text = ""
+
+    # =====================
+    # 🖼️ OCR MODE
+    # =====================
     if file:
-        filename = secure_filename(file.filename)
-        path = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(path)
+        try:
+            filename = secure_filename(file.filename)
+            path = os.path.join(UPLOAD_FOLDER, filename)
+            file.save(path)
 
-        with open(path, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+            img = Image.open(path)
 
-        image_content = {
-            "type":"image_url",
-            "image_url":{
-                "url":f"data
-            }
+            extracted_text = pytesseract.image_to_string(img)
+
+        except Exception as e:
+            return jsonify({"reply": f"❌ OCR Error: {str(e)}"})
+
+    # =====================
+    # 🧠 FINAL MESSAGE
+    # =====================
+    final_prompt = ""
+
+    if extracted_text:
+        final_prompt = f"""
+Ini hasil OCR dari gambar:
+
+{extracted_text}
+
+Jelaskan dengan santai dan mudah dimengerti.
+"""
+    else:
+        final_prompt = msg
+
+    try:
+        r = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.1-8b-instant",
+                "messages": [
+                    {"role": "user", "content": final_prompt}
+                ],
+                "temperature": 0.7
+            },
+            timeout=60
+        )
+
+        data = r.json()
+
+        if "choices" not in data:
+            return jsonify({"reply": f"❌ API Error: {data}"})
+
+        reply = data["choices"][0]["message"]["content"]
+
+        return jsonify({"reply": reply})
+
+    except Exception as e:
+        return jsonify({"reply": f"❌ Server Error: {str(e)}"})
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
