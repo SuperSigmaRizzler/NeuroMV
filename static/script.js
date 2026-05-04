@@ -1,69 +1,161 @@
 let chats = JSON.parse(localStorage.getItem("chats")) || {};
 let currentChat = localStorage.getItem("current_chat");
 
-/* init */
 if(!currentChat){
     currentChat = "Chat 1";
-    chats[currentChat] = "";
-}
-
-/* render sidebar */
-function renderChats(){
-    let list = document.getElementById("chatList");
-    list.innerHTML = "";
-
-    Object.keys(chats).forEach(name => {
-        let div = document.createElement("div");
-        div.innerText = name;
-        div.onclick = () => switchChat(name);
-        list.appendChild(div);
-    });
-}
-
-/* switch chat */
-function switchChat(name){
-    currentChat = name;
-    localStorage.setItem("current_chat", name);
-    document.getElementById("chatbox").innerHTML = chats[name] || "";
-}
-
-/* new chat */
-function newChat(){
-    let name = "Chat " + (Object.keys(chats).length + 1);
-    chats[name] = "";
+    chats[currentChat] = {
+        title: "Chat Baru",
+        messages: []
+    };
     saveAll();
-    renderChats();
-    switchChat(name);
 }
 
-/* save */
+/* =========================
+   SAVE KE LOCALSTORAGE
+========================= */
 function saveAll(){
-    chats[currentChat] = document.getElementById("chatbox").innerHTML;
     localStorage.setItem("chats", JSON.stringify(chats));
     localStorage.setItem("current_chat", currentChat);
 }
 
-/* load */
-window.onload = () => {
-    renderChats();
-    switchChat(currentChat);
-};
+/* =========================
+   AUTO JUDUL CHAT
+========================= */
+function generateTitle(text){
+    text = text.trim().replace("?", "");
 
-/* add message */
-function addMsg(text, role){
+    let words = text.split(" ");
+
+    let title = words.slice(0, 6).join(" ");
+
+    if(title.length > 35){
+        title = title.substring(0, 35) + "...";
+    }
+
+    return title || "Chat Baru";
+}
+
+/* =========================
+   RENDER SIDEBAR CHAT LIST
+========================= */
+function renderChats(){
+    const list = document.getElementById("chatList");
+    list.innerHTML = "";
+
+    Object.keys(chats).forEach(name => {
+        let chat = chats[name];
+
+        let div = document.createElement("div");
+
+        let title = chat.title || name;
+
+        div.innerHTML = `
+            <span onclick="switchChat('${name}')">${title}</span>
+            <button onclick="deleteChat('${name}')">x</button>
+        `;
+
+        list.appendChild(div);
+    });
+}
+
+/* =========================
+   SWITCH CHAT
+========================= */
+function switchChat(name){
+    currentChat = name;
+    saveAll();
+    loadChat();
+}
+
+/* =========================
+   CHAT BARU
+========================= */
+function newChat(){
+    let name = "chat_" + Date.now();
+
+    chats[name] = {
+        title: "Chat Baru",
+        messages: []
+    };
+
+    currentChat = name;
+
+    saveAll();
+    renderChats();
+    loadChat();
+}
+
+/* =========================
+   HAPUS CHAT
+========================= */
+function deleteChat(name){
+    delete chats[name];
+
+    if(Object.keys(chats).length === 0){
+        newChat();
+    } else if(currentChat === name){
+        currentChat = Object.keys(chats)[0];
+    }
+
+    saveAll();
+    renderChats();
+    loadChat();
+}
+
+/* =========================
+   LOAD CHAT KE UI
+========================= */
+function loadChat(){
+    const box = document.getElementById("chatbox");
+    box.innerHTML = "";
+
+    let chat = chats[currentChat];
+
+    if(!chat) return;
+
+    chat.messages.forEach(m => {
+        addMsgUI(m.text, m.role, false);
+    });
+}
+
+/* =========================
+   TAMBAH PESAN KE UI
+========================= */
+function addMsgUI(text, role, save=true){
+    const box = document.getElementById("chatbox");
+
     let div = document.createElement("div");
     div.className = "msg " + role;
     div.innerText = text;
-    document.getElementById("chatbox").appendChild(div);
-    saveAll();
+
+    box.appendChild(div);
+
+    if(save){
+        chats[currentChat].messages.push({
+            text,
+            role
+        });
+
+        saveAll();
+    }
 }
 
-/* send */
+/* =========================
+   KIRIM PESAN
+========================= */
 async function sendMsg(){
     let msg = document.getElementById("msg").value;
     if(!msg) return;
 
-    addMsg(msg, "user");
+    let chat = chats[currentChat];
+
+    /* 🧠 AUTO TITLE (ambil dari pesan pertama) */
+    if(chat.messages.length === 0){
+        chat.title = generateTitle(msg);
+    }
+
+    addMsgUI(msg, "user");
+
     document.getElementById("msg").value = "";
 
     let res = await fetch("/chat", {
@@ -73,12 +165,22 @@ async function sendMsg(){
 
     let data = await res.json();
 
-    addMsg(data.reply, "bot");
+    addMsgUI(data.reply, "bot");
 }
 
-/* reset */
+/* =========================
+   CLEAR CHAT
+========================= */
 async function clearChat(){
-    await fetch("/clear", {method:"POST"});
-    document.getElementById("chatbox").innerHTML = "";
-    localStorage.removeItem("chats");
+    chats[currentChat].messages = [];
+    saveAll();
+    loadChat();
 }
+
+/* =========================
+   INIT
+========================= */
+window.onload = () => {
+    renderChats();
+    loadChat();
+};
