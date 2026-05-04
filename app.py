@@ -4,7 +4,12 @@ import requests
 
 app = Flask(__name__)
 
+# API KEY GROQ
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# MODEL PALING STABLE SAAT INI
+MODEL = "llama-3.1-8b-instant"
+
 
 @app.route("/")
 def home():
@@ -16,24 +21,28 @@ def chat():
 
     msg = request.form.get("message", "")
 
+    if not GROQ_API_KEY:
+        return jsonify({"reply": "❌ API key belum di-set di server"})
+
     try:
-        r = requests.post(
+        response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {GROQ_API_KEY}",
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama-3.1-70b-versatile",
+                "model": MODEL,
                 "messages": [
                     {"role": "user", "content": msg}
-                ]
+                ],
+                "temperature": 0.7
             }
         )
 
-        data = r.json()
+        data = response.json()
 
-        # SAFE CHECK
+        # SAFE CHECK biar gak error "choices"
         if "choices" in data:
             reply = data["choices"][0]["message"]["content"]
         else:
@@ -42,7 +51,7 @@ def chat():
         return jsonify({"reply": reply})
 
     except Exception as e:
-        return jsonify({"reply": f"❌ Error: {str(e)}"})
+        return jsonify({"reply": f"❌ Server Error: {str(e)}"})
 
 
 if __name__ == "__main__":
