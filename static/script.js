@@ -1,7 +1,7 @@
 let chats = JSON.parse(localStorage.getItem("chats")) || {};
 let currentChat = localStorage.getItem("current_chat");
 
-/* buat chat pertama kalau belum ada */
+/* init */
 if(!currentChat){
     currentChat = "Chat 1";
     chats[currentChat] = "";
@@ -20,37 +20,36 @@ function renderChats(){
     });
 }
 
-/* pindah chat */
+/* switch chat */
 function switchChat(name){
     currentChat = name;
     localStorage.setItem("current_chat", name);
-    document.getElementById("chatbox").innerHTML = chats[name];
+    document.getElementById("chatbox").innerHTML = chats[name] || "";
 }
 
-/* chat baru */
+/* new chat */
 function newChat(){
     let name = "Chat " + (Object.keys(chats).length + 1);
     chats[name] = "";
-    currentChat = name;
     saveAll();
     renderChats();
     switchChat(name);
 }
 
-/* simpan */
+/* save */
 function saveAll(){
     chats[currentChat] = document.getElementById("chatbox").innerHTML;
     localStorage.setItem("chats", JSON.stringify(chats));
     localStorage.setItem("current_chat", currentChat);
 }
 
-/* load awal */
+/* load */
 window.onload = () => {
     renderChats();
     switchChat(currentChat);
 };
 
-/* tambah pesan */
+/* add message */
 function addMsg(text, role){
     let div = document.createElement("div");
     div.className = "msg " + role;
@@ -59,7 +58,7 @@ function addMsg(text, role){
     saveAll();
 }
 
-/* kirim */
+/* send */
 async function sendMsg(){
     let msg = document.getElementById("msg").value;
     if(!msg) return;
@@ -75,4 +74,11 @@ async function sendMsg(){
     let data = await res.json();
 
     addMsg(data.reply, "bot");
+}
+
+/* reset */
+async function clearChat(){
+    await fetch("/clear", {method:"POST"});
+    document.getElementById("chatbox").innerHTML = "";
+    localStorage.removeItem("chats");
 }

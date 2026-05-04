@@ -1,21 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>NeuroMV</title>
+
+    <!-- INI FIX PALING AMAN -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
 <div class="app">
 
+    <!-- SIDEBAR -->
     <div class="sidebar">
         <button onclick="newChat()">+ New Chat</button>
         <div id="chatList"></div>
     </div>
 
+    <!-- MAIN -->
     <div class="main">
-        <div class="header">⚡ NeuroMV</div>
+
+        <div class="header">
+            ⚡ NeuroMV
+            <button onclick="clearChat()">Reset</button>
+        </div>
+
         <div id="chatbox"></div>
+
+        <div id="preview"></div>
 
         <div class="input-area">
             <label for="fileInput" class="upload-btn">+</label>
             <input type="file" id="fileInput" hidden>
 
-            <input type="text" id="msg">
+            <input type="text" id="msg" placeholder="Tulis pesan...">
+
             <button onclick="sendMsg()">Kirim</button>
         </div>
+
     </div>
 
 </div>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+
+</body>
+</html>
