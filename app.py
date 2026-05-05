@@ -11,10 +11,10 @@ app = Flask(__name__)
 # CONFIG
 # =========================
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-HF_API_KEY = os.getenv("HF_API_KEY", "").strip()
+HF_API_KEY   = os.getenv("HF_API_KEY", "").strip()
 
 GROQ_MODEL = "llama-3.1-8b-instant"
-HF_MODEL = "Salesforce/blip-image-captioning-base"
+HF_MODEL   = "nlpconnect/vit-gpt2-image-captioning"
 
 LIMIT_FILE = "limits.json"
 
@@ -40,6 +40,7 @@ def get_ip():
     return ip.split(",")[0].strip()
 
 def check_limit(ip, key, max_limit):
+
     data = load_limits()
     today = str(datetime.now().date())
 
@@ -83,7 +84,7 @@ def ask_groq(prompt):
                 "role": "system",
                 "content": """
 Kamu adalah NeuroMV AI.
-Jawab santai, modern, ramah.
+Jawab santai, ramah, modern.
 Gunakan markdown seperti **bold**, `code`, _italic_ bila cocok.
 Jangan terlalu formal.
 """
@@ -97,7 +98,11 @@ Jangan terlalu formal.
     }
 
     r = requests.post(url, headers=headers, json=payload, timeout=60)
-    data = r.json()
+
+    try:
+        data = r.json()
+    except:
+        return "❌ Groq tidak merespon dengan benar."
 
     if "choices" in data:
         return data["choices"][0]["message"]["content"]
@@ -112,7 +117,7 @@ def home():
     return render_template("index.html")
 
 # =========================
-# CHAT
+# CHAT + VISION
 # =========================
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -122,9 +127,9 @@ def chat():
     ip = get_ip()
 
     # =====================
-    # IMAGE / VISION MODE
+    # VISION MODE
     # =====================
-    if file:
+    if file and file.filename != "":
 
         if not check_limit(ip, "upload", 10):
             return jsonify({
@@ -134,7 +139,7 @@ def chat():
         try:
             img_bytes = file.read()
 
-            url = f"https://router.huggingface.co/hf-inference/models/{HF_MODEL}"
+            url = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
 
             headers = {
                 "Authorization": f"Bearer {HF_API_KEY}"
@@ -171,6 +176,7 @@ def chat():
                         "reply": f"❌ HF Error: {data['error']}"
                     })
 
+            # Gabung ke AI chat
             prompt = f"""
 User mengirim gambar dengan isi:
 {caption}
@@ -183,9 +189,7 @@ Jawab santai dalam Bahasa Indonesia.
 
             reply = ask_groq(prompt)
 
-            return jsonify({
-                "reply": reply
-            })
+            return jsonify({"reply": reply})
 
         except Exception as e:
             return jsonify({
@@ -197,10 +201,7 @@ Jawab santai dalam Bahasa Indonesia.
     # =====================
     try:
         reply = ask_groq(msg if msg else "Halo")
-
-        return jsonify({
-            "reply": reply
-        })
+        return jsonify({"reply": reply})
 
     except Exception as e:
         return jsonify({
@@ -232,7 +233,7 @@ def generate_image():
     })
 
 # =========================
-# SUMMARY
+# SUMMARY TITLE
 # =========================
 @app.route("/summary", methods=["POST"])
 def summary():
