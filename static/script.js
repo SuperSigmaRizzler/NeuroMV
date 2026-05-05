@@ -5,11 +5,8 @@ const msg = document.getElementById("msg");
 
 let selectedFile = null;
 
-let chats = JSON.parse(localStorage.getItem("chats")) || [];
-let currentChat = null;
-
 /* =========================
-   MARKDOWN RENDER
+MARKDOWN
 ========================= */
 function md(t){
 return t
@@ -20,326 +17,150 @@ return t
 }
 
 /* =========================
-   SAVE STORAGE
+ADD MESSAGE
 ========================= */
-function saveData(){
-localStorage.setItem("chats", JSON.stringify(chats));
-}
+function addMsg(text,sender){
 
-/* =========================
-   HISTORY
-========================= */
-function renderHistory(){
-const h = document.getElementById("history");
-h.innerHTML = "";
+let div=document.createElement("div");
+div.className="msg "+sender;
 
-chats.forEach(c=>{
-let div = document.createElement("div");
-div.className = "chat-item";
-
-div.innerHTML = `
-<span onclick="loadChat('${c.id}')">${c.title}</span>
-<button onclick="deleteChat('${c.id}')">🗑️</button>
-`;
-
-h.appendChild(div);
-});
-}
-
-/* =========================
-   NEW CHAT
-========================= */
-function newChat(){
-
-currentChat = Date.now().toString();
-
-chats.unshift({
-id: currentChat,
-title: "💬 New Chat",
-messages:[]
-});
-
-saveData();
-renderHistory();
-chatbox.innerHTML = "";
-}
-
-/* =========================
-   DELETE CHAT
-========================= */
-function deleteChat(id){
-
-chats = chats.filter(x=>x.id !== id);
-
-saveData();
-renderHistory();
-
-if(currentChat === id){
-currentChat = null;
-chatbox.innerHTML = "";
-}
-}
-
-/* =========================
-   LOAD CHAT
-========================= */
-function loadChat(id){
-
-currentChat = id;
-chatbox.innerHTML = "";
-
-let c = chats.find(x=>x.id === id);
-if(!c) return;
-
-c.messages.forEach(m=>{
-addMsg(m.text, m.sender, false);
-});
-}
-
-/* =========================
-   ADD MESSAGE
-========================= */
-function addMsg(text, sender, save=true){
-
-let div = document.createElement("div");
-div.className = "msg " + sender;
-
-if(sender === "bot"){
-div.innerHTML = md(text);
+if(sender==="bot"){
+div.innerHTML=md(text);
 }else{
-div.textContent = text;
+div.textContent=text;
 }
 
 chatbox.appendChild(div);
-chatbox.scrollTop = chatbox.scrollHeight;
-
-/* save */
-if(save && currentChat){
-let c = chats.find(x=>x.id === currentChat);
-if(c){
-c.messages.push({
-text:text,
-sender:sender
-});
-saveData();
-}
-}
+chatbox.scrollTop=chatbox.scrollHeight;
 }
 
 /* =========================
-   FILE PICKER
+OPEN FILE
 ========================= */
 function openFile(){
 fileInput.click();
 }
 
 /* =========================
-   FILE PREVIEW
+PREVIEW IMAGE
 ========================= */
-fileInput.onchange = ()=>{
+fileInput.onchange=function(){
 
-if(fileInput.files.length > 0){
+let file=this.files[0];
+if(!file) return;
 
-selectedFile = fileInput.files[0];
+selectedFile=file;
 
-let url = URL.createObjectURL(selectedFile);
+let reader=new FileReader();
 
-previewBox.innerHTML = `
+reader.onload=function(e){
+
+previewBox.innerHTML=`
 <div class="preview-card">
 <button class="remove-btn" onclick="removeFile()">✕</button>
-<img src="${url}">
+<img src="${e.target.result}">
 </div>
 `;
-}
+
+};
+
+reader.readAsDataURL(file);
 };
 
 /* =========================
-   REMOVE FILE
+REMOVE FILE
 ========================= */
 function removeFile(){
-selectedFile = null;
-fileInput.value = "";
-previewBox.innerHTML = "";
+selectedFile=null;
+fileInput.value="";
+previewBox.innerHTML="";
 }
 
 /* =========================
-   SUMMARY TITLE
-========================= */
-async function makeTitle(text){
-
-if(!currentChat) return;
-
-let fd = new FormData();
-fd.append("text", text);
-
-try{
-
-let r = await fetch("/summary",{
-method:"POST",
-body:fd
-});
-
-let d = await r.json();
-
-let c = chats.find(x=>x.id === currentChat);
-
-if(c){
-c.title = d.title || "💬 New Chat";
-saveData();
-renderHistory();
-}
-
-}catch(err){}
-}
-
-/* =========================
-   SEND MESSAGE
+SEND MESSAGE
 ========================= */
 async function sendMsg(){
 
-let text = msg.value.trim();
+let text=msg.value.trim();
 
 if(!text && !selectedFile) return;
 
-/* bikin chat baru */
-if(!currentChat){
-newChat();
-}
-
-/* simpan file dulu */
-let fileToSend = selectedFile;
-
-/* tampil pesan user */
+/* tampil user */
 if(text){
-addMsg(text, "user");
-makeTitle(text);
+addMsg(text,"user");
 }
 
 /* tampil gambar user */
-if(fileToSend){
+if(selectedFile){
 
-let url = URL.createObjectURL(fileToSend);
+let reader=new FileReader();
 
-let div = document.createElement("div");
-div.className = "msg user";
-div.innerHTML = `<img src="${url}">`;
+reader.onload=function(e){
+
+let div=document.createElement("div");
+div.className="msg user";
+div.innerHTML=`<img src="${e.target.result}">`;
 
 chatbox.appendChild(div);
-chatbox.scrollTop = chatbox.scrollHeight;
+chatbox.scrollTop=chatbox.scrollHeight;
+
+};
+
+reader.readAsDataURL(selectedFile);
 }
 
 /* clear input */
-msg.value = "";
+msg.value="";
+
+/* loading */
+let loading=document.createElement("div");
+loading.className="msg bot";
+loading.innerHTML="NeuroMV is thinking...";
+chatbox.appendChild(loading);
+
+chatbox.scrollTop=chatbox.scrollHeight;
 
 /* formdata */
-let fd = new FormData();
-fd.append("message", text);
+let fd=new FormData();
+fd.append("message",text);
 
-if(fileToSend){
-fd.append("file", fileToSend);
+if(selectedFile){
+fd.append("file",selectedFile);
 }
 
-/* hapus preview setelah file aman */
+/* remove preview */
 removeFile();
 
-/* =========================
-   IMAGE GENERATION MODE
-========================= */
-let lower = text.toLowerCase();
-
-if(
-lower.startsWith("buat gambar") ||
-lower.startsWith("generate image") ||
-lower.startsWith("buatkan gambar")
-){
-
-let loading = document.createElement("div");
-loading.className = "msg bot";
-loading.innerHTML = `
-<div class="loading-box">
-🎨 Creating Image...
-</div>
-`;
-
-chatbox.appendChild(loading);
-chatbox.scrollTop = chatbox.scrollHeight;
-
+/* send to backend */
 try{
 
-let r = await fetch("/generate-image",{
+let r=await fetch("/chat",{
 method:"POST",
 body:fd
 });
 
-let d = await r.json();
+let d=await r.json();
 
 loading.remove();
 
-if(d.error){
-addMsg(d.error, "bot");
-return;
-}
-
-let div = document.createElement("div");
-div.className = "msg bot";
-div.innerHTML = `
-<b>Image Created ✅</b><br><br>
-<img src="${d.image}" style="opacity:0;transition:1s;">
-`;
-
-chatbox.appendChild(div);
-chatbox.scrollTop = chatbox.scrollHeight;
-
-/* fade in */
-setTimeout(()=>{
-div.querySelector("img").style.opacity = "1";
-},100);
+addMsg(d.reply || "❌ Tidak ada respon.","bot");
 
 }catch(err){
 
 loading.remove();
-addMsg("❌ Gagal membuat gambar.", "bot");
-}
 
-return;
-}
-
-/* =========================
-   NORMAL CHAT MODE
-========================= */
-let loading = document.createElement("div");
-loading.className = "msg bot";
-loading.innerHTML = "NeuroMV is thinking...";
-
-chatbox.appendChild(loading);
-chatbox.scrollTop = chatbox.scrollHeight;
-
-try{
-
-let r = await fetch("/chat",{
-method:"POST",
-body:fd
-});
-
-let d = await r.json();
-
-loading.remove();
-
-addMsg(d.reply || "❌ Tidak ada respon.", "bot");
-
-}catch(err){
-
-loading.remove();
-addMsg("❌ Gagal terhubung ke server.", "bot");
+addMsg("❌ Gagal menghubungi server.","bot");
 }
 }
 
 /* =========================
-   ENTER TO SEND
+ENTER SEND (PC ONLY)
 ========================= */
-msg.addEventListener("keydown",(e)=>{
+msg.addEventListener("keydown",function(e){
 
-if(e.key === "Enter"){
+let isMobile = window.innerWidth <= 768;
+
+if(e.key==="Enter" && !isMobile && !e.shiftKey){
 e.preventDefault();
 sendMsg();
 }
@@ -347,6 +168,8 @@ sendMsg();
 });
 
 /* =========================
-   AUTO LOAD
+BUTTON SEND SUPPORT
 ========================= */
-renderHistory();
+window.sendMsg = sendMsg;
+window.openFile = openFile;
+window.removeFile = removeFile;
