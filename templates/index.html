@@ -4,35 +4,52 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NeuroMV</title>
+
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
+<!-- SIDEBAR -->
 <div class="sidebar">
-    <h2>✨ NeuroMV</h2>
-    <button onclick="newChat()">+ New Chat</button>
+
+    <div class="logo">
+        NeuroMV
+    </div>
+
+    <button class="new-chat-btn" onclick="newChat()">
+        + New Chat
+    </button>
+
     <div id="history"></div>
+
 </div>
 
+<!-- MAIN -->
 <div class="main">
 
+    <!-- CHAT -->
     <div id="chatbox"></div>
 
-    <div id="previewBox" class="preview-box"></div>
+    <!-- PREVIEW -->
+    <div id="previewBox"></div>
 
+    <!-- INPUT -->
     <div class="input-area">
 
-        <!-- PLUS -->
         <button class="plus-btn" onclick="openFile()">+</button>
 
-        <!-- FILE -->
         <input type="file" id="fileInput" accept="image/*" hidden>
 
-        <!-- TEXT -->
-        <input type="text" id="msg" placeholder="Tanya apa aja...">
+        <input
+            type="text"
+            id="msg"
+            placeholder="Message NeuroMV..."
+            autocomplete="off"
+        >
 
-        <!-- SEND -->
-        <button onclick="sendMsg()">➤</button>
+        <button class="send-btn" onclick="sendMsg()">
+            Send
+        </button>
 
     </div>
 
