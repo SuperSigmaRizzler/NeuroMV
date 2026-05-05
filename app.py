@@ -1,158 +1,153 @@
-import os
-import requests
-from flask import Flask, render_template, request, jsonify, session
-from uuid import uuid4
+import os, time, random, requests
+from flask import Flask, request, jsonify, render_template, session
 
 app = Flask(__name__)
-app.secret_key = "neuromv-godmode"
+app.secret_key = "neuromv-ultra-stable"
 
 # =========================
 # CONFIG
 # =========================
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-HF_API_KEY = os.getenv("HF_API_KEY", "").strip()
-
+# Bisa 1 atau banyak key: "key1,key2,key3"
+GROQ_KEYS = [k.strip() for k in os.getenv("GROQ_API_KEYS", "").split(",") if k.strip()]
 GROQ_MODEL = "llama3-8b-8192"
 
 # =========================
 # MEMORY
 # =========================
 def get_memory():
-    if "memory" not in session:
-        session["memory"] = []
-    return session["memory"]
+    if "mem" not in session:
+        session["mem"] = []
+    return session["mem"]
 
 def add_memory(role, content):
     mem = get_memory()
     mem.append({"role": role, "content": content})
     if len(mem) > 12:
         mem.pop(0)
-    session["memory"] = mem
+    session["mem"] = mem
 
 # =========================
-# AI CHAT (MAIN BRAIN)
+# GROQ (MULTI KEY + RETRY)
 # =========================
-def ask_ai(prompt):
-    if not GROQ_API_KEY:
-        return "⚠️ API KEY belum di-set."
-
-    url = "https://api.groq.com/openai/v1/chat/completions"
-
-    messages = get_memory() + [{"role": "user", "content": prompt}]
-
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": messages
-    }
-
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=30)
-
-        if r.status_code != 200:
-            print("GROQ ERROR:", r.text)
-            return "⚠️ AI lagi error / limit."
-
-        data = r.json()
-        reply = data["choices"][0]["message"]["content"]
-
-        add_memory("user", prompt)
-        add_memory("assistant", reply)
-
-        return reply
-
-    except Exception as e:
-        print("ERROR:", e)
-        return "⚠️ AI tidak merespon."
-
-# =========================
-# IMAGE GENERATION (FREE)
-# =========================
-def generate_image(prompt):
-    try:
-        url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}"
-        return url
-    except:
+def ask_groq(prompt, retries=2):
+    if not GROQ_KEYS:
         return None
 
-# =========================
-# VISION (HF FREE)
-# =========================
-def analyze_image(file):
-    if not HF_API_KEY:
-        return "📷 Gambar diterima (Vision basic aktif)"
+    keys = GROQ_KEYS.copy()
+    random.shuffle(keys)
 
+    for key in keys:
+        for attempt in range(retries + 1):
+            try:
+                r = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": GROQ_MODEL,
+                        "messages": get_memory() + [{"role": "user", "content": prompt}]
+                    },
+                    timeout=8
+                )
+
+                # SUCCESS
+                if r.status_code == 200:
+                    return r.json()["choices"][0]["message"]["content"]
+
+                # RATE LIMIT → coba lagi
+                if r.status_code == 429:
+                    time.sleep(1.2 * (attempt + 1))
+                    continue
+
+                # UNAUTHORIZED / KEY INVALID → skip key
+                if r.status_code in [401, 403]:
+                    break
+
+                # ERROR LAIN → retry dikit
+                time.sleep(0.8)
+
+            except:
+                time.sleep(0.8)
+
+    return None
+
+# =========================
+# POLLINATIONS TEXT (FREE)
+# =========================
+def ask_pollinations(prompt):
     try:
-        url = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
-        headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+        url = f"https://text.pollinations.ai/{prompt.replace(' ', '%20')}"
+        r = requests.get(url, timeout=8)
+        if r.status_code == 200 and r.text.strip():
+            return r.text
+    except:
+        pass
+    return None
 
-        img_bytes = file.read()
+# =========================
+# FINAL AI (AUTO SWITCH)
+# =========================
+def ask_ai(prompt):
 
-        r = requests.post(url, headers=headers, data=img_bytes, timeout=30)
+    # 1. Groq (utama)
+    reply = ask_groq(prompt)
+    if reply:
+        add_memory("user", prompt)
+        add_memory("assistant", reply)
+        return reply
 
-        if r.status_code != 200:
-            print("HF ERROR:", r.text)
-            return "📷 Gambar diterima, tapi vision error."
+    # 2. Pollinations (fallback gratis)
+    reply = ask_pollinations(prompt)
+    if reply:
+        add_memory("user", prompt)
+        add_memory("assistant", reply)
+        return reply
 
-        data = r.json()
+    # 3. Offline fallback (never blank)
+    return f"🤖 (Offline Mode)\nAku belum bisa akses AI sekarang.\nTapi kamu bilang:\n{prompt}"
 
-        if isinstance(data, list) and "generated_text" in data[0]:
-            caption = data[0]["generated_text"]
-            return f"📷 Gambar ini terlihat seperti: {caption}"
-
-        return "📷 Gambar diterima (tidak bisa dianalisa)."
-
-    except Exception as e:
-        print("VISION ERROR:", e)
-        return "📷 Gagal membaca gambar."
+# =========================
+# IMAGE (JANGAN DIUBAH)
+# =========================
+def generate_image(prompt):
+    return f"https://image.pollinations.ai/prompt/{prompt.replace(' ','%20')}"
 
 # =========================
 # ROUTES
 # =========================
 @app.route("/")
-def index():
+def home():
     return render_template("index.html")
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    message = request.form.get("message", "").strip()
+    msg = request.form.get("message", "").strip()
     file = request.files.get("file")
 
     # =========================
-    # IMAGE UPLOAD (VISION)
+    # VISION BASIC (optional)
     # =========================
     if file:
-        result = analyze_image(file)
         return jsonify({
             "type": "text",
-            "reply": result
+            "reply": "📷 Gambar diterima!"
         })
 
     # =========================
-    # IMAGE GENERATION DETECT
+    # IMAGE GENERATION
     # =========================
-    if any(x in message.lower() for x in ["gambar", "image", "foto", "anime", "draw"]):
-        img = generate_image(message)
-
-        if img:
-            return jsonify({
-                "type": "image",
-                "url": img
-            })
-
+    if any(x in msg.lower() for x in ["gambar","image","foto","anime","draw"]):
         return jsonify({
-            "type": "text",
-            "reply": "❌ Gagal generate image"
+            "type": "image",
+            "url": generate_image(msg)
         })
 
     # =========================
-    # NORMAL CHAT
+    # TEXT AI
     # =========================
-    reply = ask_ai(message)
+    reply = ask_ai(msg)
 
     return jsonify({
         "type": "text",

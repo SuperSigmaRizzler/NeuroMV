@@ -1,149 +1,203 @@
 const form = document.getElementById("chat-form");
 const input = document.getElementById("message");
 const chatBox = document.getElementById("chat-box");
-const fileInput = document.getElementById("file-input");
-const previewBox = document.getElementById("preview-box");
+const historyBox = document.getElementById("history");
 
-// ENTER SEND (PC)
-document.addEventListener("keydown", (e) => {
-  if (window.innerWidth > 768 && e.key === "Enter" && !e.shiftKey) {
-    if (document.activeElement === input) {
-      e.preventDefault();
-      form.requestSubmit();
+// =====================
+// STORAGE
+// =====================
+let chats = JSON.parse(localStorage.getItem("chats") || "[]");
+let currentChatId = null;
+
+// =====================
+// NEW CHAT
+// =====================
+document.querySelector(".new-chat").onclick = () => {
+    const id = Date.now();
+
+    const newChat = {
+        id,
+        title: "New Chat",
+        messages: []
+    };
+
+    chats.unshift(newChat);
+    currentChatId = id;
+
+    saveChats();
+    renderHistory();
+    renderChat();
+};
+
+// =====================
+// SAVE
+// =====================
+function saveChats() {
+    localStorage.setItem("chats", JSON.stringify(chats));
+}
+
+// =====================
+// RENDER HISTORY
+// =====================
+function renderHistory() {
+    historyBox.innerHTML = "";
+
+    chats.forEach(chat => {
+        const div = document.createElement("div");
+        div.className = "history-item";
+        if (chat.id === currentChatId) div.classList.add("active");
+
+        const title = document.createElement("span");
+        title.innerText = chat.title;
+
+        // DELETE BUTTON
+        const del = document.createElement("button");
+        del.innerText = "✖";
+        del.className = "delete-chat";
+
+        del.onclick = (e) => {
+            e.stopPropagation();
+            chats = chats.filter(c => c.id !== chat.id);
+
+            if (currentChatId === chat.id) {
+                currentChatId = chats[0]?.id || null;
+            }
+
+            saveChats();
+            renderHistory();
+            renderChat();
+        };
+
+        div.onclick = () => {
+            currentChatId = chat.id;
+            renderHistory();
+            renderChat();
+        };
+
+        div.appendChild(title);
+        div.appendChild(del);
+        historyBox.appendChild(div);
+    });
+}
+
+// =====================
+// RENDER CHAT
+// =====================
+function renderChat() {
+    chatBox.innerHTML = "";
+
+    const chat = chats.find(c => c.id === currentChatId);
+    if (!chat) return;
+
+    chat.messages.forEach(msg => {
+        addMessage(msg.text, msg.role, null, false);
+    });
+}
+
+// =====================
+// AUTO TITLE (SUMMARY)
+// =====================
+function generateTitle(text) {
+    text = text.toLowerCase();
+
+    if (text.includes("hasil")) {
+        return text.replace("apa", "").trim();
     }
-  }
-});
 
-// AUTO RESIZE
-input.addEventListener("input", () => {
-  input.style.height = "auto";
-  input.style.height = input.scrollHeight + "px";
-});
+    if (text.length > 20) {
+        return text.slice(0, 20) + "...";
+    }
 
-// PREVIEW
-fileInput.addEventListener("change", () => {
-  previewBox.innerHTML = "";
-  const file = fileInput.files[0];
-  if (!file) return;
+    return text;
+}
 
-  const img = document.createElement("img");
-  img.src = URL.createObjectURL(file);
-  img.className = "preview-image";
-  previewBox.appendChild(img);
-});
+// =====================
+// ADD MESSAGE
+// =====================
+function addMessage(text, sender, file=null, save=true) {
+    const div = document.createElement("div");
+    div.className = sender;
 
-// SEND
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-
-  const msg = input.value.trim();
-  const file = fileInput.files[0];
-
-  if (!msg && !file) return;
-
-  addMessage(msg, "user", file);
-
-  input.value = "";
-  previewBox.innerHTML = "";
-
-  const fd = new FormData();
-  fd.append("message", msg);
-  if (file) fd.append("file", file);
-
-  const res = await fetch("/chat", {
-    method: "POST",
-    body: fd
-  });
-
-  const data = await res.json();
-
-  if (data.type === "text") typeEffect(data.reply);
-  if (data.type === "image") createImage(data.url);
-
-  scrollBottom();
-});
-
-// USER MESSAGE
-function addMessage(text, sender, file=null) {
-  const div = document.createElement("div");
-  div.className = sender;
-
-  if (text) {
     const p = document.createElement("p");
     p.textContent = text;
     div.appendChild(p);
-  }
 
-  if (file) {
-    const img = document.createElement("img");
-    img.src = URL.createObjectURL(file);
-    img.className = "chat-image";
-    div.appendChild(img);
-  }
+    chatBox.appendChild(div);
 
-  chatBox.appendChild(div);
-}
+    if (save) {
+        const chat = chats.find(c => c.id === currentChatId);
+        if (!chat) return;
 
-// TYPING
-function typeEffect(text) {
-  const div = document.createElement("div");
-  div.className = "bot";
+        chat.messages.push({ role: sender, text });
 
-  const p = document.createElement("p");
-  div.appendChild(p);
-  chatBox.appendChild(div);
+        // AUTO TITLE dari pesan pertama
+        if (chat.messages.length === 1) {
+            chat.title = generateTitle(text);
+        }
 
-  let i = 0;
-  function typing() {
-    if (i < text.length) {
-      p.textContent += text[i++];
-      setTimeout(typing, 10);
+        saveChats();
+        renderHistory();
     }
-  }
-  typing();
 }
 
-// IMAGE
-function createImage(url) {
-  const div = document.createElement("div");
-  div.className = "bot";
+// =====================
+// SEND
+// =====================
+form.addEventListener("submit", async (e) => {
+    e.preventDefault();
 
-  const status = document.createElement("p");
-  status.textContent = "🎨 Creating Image...";
+    const msg = input.value.trim();
+    if (!msg) return;
 
-  const img = document.createElement("img");
-  img.className = "chat-image";
-  img.style.display = "none";
+    addMessage(msg, "user");
 
-  div.appendChild(status);
-  div.appendChild(img);
-  chatBox.appendChild(div);
+    input.value = "";
 
-  let retry = 0;
+    const fd = new FormData();
+    fd.append("message", msg);
 
-  function load() {
-    img.src = url + "?t=" + Date.now();
+    const res = await fetch("/chat", {
+        method: "POST",
+        body: fd
+    });
 
-    img.onload = () => {
-      status.textContent = "Image Created ✅";
-      img.style.display = "block";
-    };
+    const data = await res.json();
 
-    img.onerror = () => {
-      retry++;
-      if (retry < 5) {
-        status.textContent = "Retrying...";
-        setTimeout(load, 1500);
-      } else {
-        status.textContent = "❌ Gagal generate image";
-      }
-    };
-  }
+    if (data.type === "text") {
+        addMessage(data.reply, "bot");
+    }
 
-  load();
+    if (data.type === "image") {
+        const div = document.createElement("div");
+        div.className = "bot";
+
+        const img = document.createElement("img");
+        img.src = data.url;
+        img.className = "chat-image";
+
+        div.appendChild(img);
+        chatBox.appendChild(div);
+    }
+});
+
+// =====================
+// ENTER SEND
+// =====================
+input.addEventListener("keydown", (e) => {
+    if (window.innerWidth > 768 && e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+    }
+});
+
+// =====================
+// INIT
+// =====================
+if (chats.length === 0) {
+    document.querySelector(".new-chat").click();
+} else {
+    currentChatId = chats[0].id;
 }
 
-// SCROLL
-function scrollBottom() {
-  chatBox.scrollTop = chatBox.scrollHeight;
-}
+renderHistory();
+renderChat();
