@@ -1,3 +1,21 @@
+// =====================
+// SAFE STORAGE
+// =====================
+function loadChats() {
+    try {
+        const data = JSON.parse(localStorage.getItem("chats"));
+        return Array.isArray(data) ? data : [];
+    } catch {
+        return [];
+    }
+}
+
+let chats = loadChats();
+let currentChatId = null;
+
+// =====================
+// ELEMENTS
+// =====================
 const form = document.getElementById("chat-form");
 const input = document.getElementById("message");
 const chatBox = document.getElementById("chat-box");
@@ -6,204 +24,264 @@ const fileInput = document.getElementById("file-input");
 const previewBox = document.getElementById("preview-box");
 
 // =====================
-// STORAGE
+// SAVE
 // =====================
-let chats = JSON.parse(localStorage.getItem("chats") || "[]");
-let currentChatId = null;
-
-function saveChats(){
-  localStorage.setItem("chats", JSON.stringify(chats));
+function saveChats() {
+    localStorage.setItem("chats", JSON.stringify(chats));
 }
 
 // =====================
 // NEW CHAT
 // =====================
-document.querySelector(".new-chat").onclick = ()=>{
-  const id = Date.now();
-  chats.unshift({id,title:"New Chat",messages:[]});
-  currentChatId = id;
-  saveChats();
-  renderHistory();
-  renderChat();
+document.querySelector(".new-chat").onclick = () => {
+    const id = Date.now();
+
+    const chat = {
+        id,
+        title: "New Chat",
+        messages: []
+    };
+
+    chats.unshift(chat);
+    currentChatId = id;
+
+    saveChats();
+    renderHistory();
+    renderChat();
 };
 
 // =====================
 // HISTORY
 // =====================
-function renderHistory(){
-  historyBox.innerHTML="";
-  chats.forEach(c=>{
-    const div=document.createElement("div");
-    div.className="history-item";
+function renderHistory() {
+    historyBox.innerHTML = "";
 
-    const t=document.createElement("span");
-    t.textContent=c.title;
+    chats.forEach(chat => {
+        const div = document.createElement("div");
+        div.className = "history-item";
+        if (chat.id === currentChatId) div.classList.add("active");
 
-    const del=document.createElement("button");
-    del.textContent="✖";
-    del.className="delete-chat";
+        const title = document.createElement("span");
+        title.textContent = chat.title;
 
-    del.onclick=(e)=>{
-      e.stopPropagation();
-      chats=chats.filter(x=>x.id!==c.id);
-      currentChatId=chats[0]?.id;
-      saveChats();
-      renderHistory();
-      renderChat();
-    };
+        const del = document.createElement("button");
+        del.textContent = "✖";
+        del.className = "delete-chat";
 
-    div.onclick=()=>{
-      currentChatId=c.id;
-      renderChat();
-    };
+        del.onclick = (e) => {
+            e.stopPropagation();
 
-    div.appendChild(t);
-    div.appendChild(del);
-    historyBox.appendChild(div);
-  });
+            chats = chats.filter(c => c.id !== chat.id);
+
+            if (currentChatId === chat.id) {
+                currentChatId = chats[0]?.id || null;
+            }
+
+            saveChats();
+            renderHistory();
+            renderChat();
+        };
+
+        div.onclick = () => {
+            currentChatId = chat.id;
+            renderHistory();
+            renderChat();
+        };
+
+        div.appendChild(title);
+        div.appendChild(del);
+        historyBox.appendChild(div);
+    });
 }
 
 // =====================
 // RENDER CHAT
 // =====================
-function renderChat(){
-  chatBox.innerHTML="";
-  const chat=chats.find(c=>c.id===currentChatId);
-  if(!chat)return;
+function renderChat() {
+    chatBox.innerHTML = "";
 
-  chat.messages.forEach(m=>{
-    addMessage(m.text,m.role,null,false);
-  });
+    const chat = chats.find(c => c.id === currentChatId);
+    if (!chat) return;
+
+    chat.messages.forEach(msg => {
+        addMessage(msg.text, msg.role, null, false);
+    });
+
+    scrollBottom();
 }
 
 // =====================
-// TITLE AUTO
+// TITLE GENERATOR
 // =====================
-function genTitle(t){
-  if(t.toLowerCase().includes("hasil")) return t.replace("apa","");
-  return t.slice(0,20);
+function generateTitle(text) {
+    text = text.trim();
+
+    if (text.toLowerCase().includes("hasil")) {
+        return text.replace(/apa/i, "").trim();
+    }
+
+    if (text.length > 25) return text.slice(0, 25) + "...";
+
+    return text;
 }
 
 // =====================
 // ADD MESSAGE
 // =====================
-function addMessage(text,role,file=null,save=true){
-  const div=document.createElement("div");
-  div.className=role;
+function addMessage(text, role, file = null, save = true) {
+    const div = document.createElement("div");
+    div.className = role;
 
-  if(text){
-    const p=document.createElement("p");
-    p.textContent=text;
-    div.appendChild(p);
-  }
+    if (text) {
+        const p = document.createElement("p");
+        p.textContent = text;
+        div.appendChild(p);
+    }
 
-  if(file){
-    const img=document.createElement("img");
-    img.src=URL.createObjectURL(file);
-    img.className="chat-image";
-    div.appendChild(img);
-  }
+    if (file) {
+        const img = document.createElement("img");
+        img.src = URL.createObjectURL(file);
+        img.className = "chat-image";
+        div.appendChild(img);
+    }
 
-  chatBox.appendChild(div);
+    chatBox.appendChild(div);
 
-  if(save){
-    const chat=chats.find(c=>c.id===currentChatId);
-    chat.messages.push({role,text});
-    if(chat.messages.length===1) chat.title=genTitle(text);
-    saveChats();
-    renderHistory();
-  }
+    if (save) {
+        const chat = chats.find(c => c.id === currentChatId);
+        if (!chat) return;
 
-  chatBox.scrollTop=chatBox.scrollHeight;
+        chat.messages.push({ role, text });
+
+        if (chat.messages.length === 1) {
+            chat.title = generateTitle(text);
+        }
+
+        saveChats();
+        renderHistory();
+    }
+
+    scrollBottom();
 }
 
 // =====================
-// PREVIEW
+// PREVIEW FILE
 // =====================
-fileInput.onchange=()=>{
-  previewBox.innerHTML="";
-  const f=fileInput.files[0];
-  if(!f)return;
+fileInput.addEventListener("change", () => {
+    previewBox.innerHTML = "";
 
-  const wrap=document.createElement("div");
-  wrap.className="preview-wrapper";
+    const file = fileInput.files[0];
+    if (!file) return;
 
-  const img=document.createElement("img");
-  img.src=URL.createObjectURL(f);
-  img.className="preview-image";
+    const wrapper = document.createElement("div");
+    wrapper.className = "preview-wrapper";
 
-  const rm=document.createElement("button");
-  rm.textContent="✖";
-  rm.className="remove-btn";
-  rm.onclick=()=>{
-    fileInput.value="";
-    previewBox.innerHTML="";
-  };
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(file);
+    img.className = "preview-image";
 
-  wrap.appendChild(img);
-  wrap.appendChild(rm);
-  previewBox.appendChild(wrap);
-};
+    const remove = document.createElement("button");
+    remove.textContent = "✖";
+    remove.className = "remove-btn";
+
+    remove.onclick = () => {
+        fileInput.value = "";
+        previewBox.innerHTML = "";
+    };
+
+    wrapper.appendChild(img);
+    wrapper.appendChild(remove);
+    previewBox.appendChild(wrapper);
+});
 
 // =====================
-// SEND (FIX TOTAL)
+// SEND
 // =====================
-form.onsubmit=async(e)=>{
-  e.preventDefault();
+form.addEventListener("submit", async (e) => {
+    e.preventDefault();
 
-  const msg=input.value.trim();
-  const file=fileInput.files[0];
-  if(!msg && !file) return;
+    const msg = input.value.trim();
+    const file = fileInput.files[0];
 
-  addMessage(msg,"user",file);
+    if (!msg && !file) return;
 
-  // RESET FIX
-  input.value="";
-  fileInput.value="";
-  previewBox.innerHTML="";
+    addMessage(msg, "user", file);
 
-  try{
-    const fd=new FormData();
-    fd.append("message",msg);
-    if(file) fd.append("file",file);
+    // RESET INPUT FIX
+    input.value = "";
+    input.style.height = "auto";
+    fileInput.value = "";
+    previewBox.innerHTML = "";
 
-    const res=await fetch("/chat",{method:"POST",body:fd});
-    const data=await res.json();
+    try {
+        const fd = new FormData();
+        fd.append("message", msg);
+        if (file) fd.append("file", file);
 
-    if(data.type==="text") addMessage(data.reply,"bot");
+        const res = await fetch("/chat", {
+            method: "POST",
+            body: fd
+        });
 
-    if(data.type==="image"){
-      const div=document.createElement("div");
-      div.className="bot";
-      const img=document.createElement("img");
-      img.src=data.url;
-      img.className="chat-image";
-      div.appendChild(img);
-      chatBox.appendChild(div);
+        if (!res.ok) throw new Error("Server error");
+
+        const data = await res.json();
+
+        if (data.type === "text") {
+            addMessage(data.reply, "bot");
+        }
+
+        if (data.type === "image") {
+            const div = document.createElement("div");
+            div.className = "bot";
+
+            const img = document.createElement("img");
+            img.src = data.url;
+            img.className = "chat-image";
+
+            div.appendChild(img);
+            chatBox.appendChild(div);
+        }
+
+    } catch (err) {
+        console.error(err);
+        addMessage("❌ Gagal connect ke server", "bot");
     }
 
-  }catch{
-    addMessage("❌ Server error","bot");
-  }
-};
+    scrollBottom();
+});
 
 // =====================
 // ENTER SEND
 // =====================
-input.onkeydown=(e)=>{
-  if(e.key==="Enter"&&!e.shiftKey){
-    e.preventDefault();
-    form.dispatchEvent(new Event("submit"));
-  }
-};
+input.addEventListener("keydown", (e) => {
+    if (window.innerWidth > 768 && e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        form.dispatchEvent(new Event("submit"));
+    }
+});
+
+// =====================
+// AUTO RESIZE
+// =====================
+input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = input.scrollHeight + "px";
+});
+
+// =====================
+function scrollBottom() {
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
 
 // =====================
 // INIT
 // =====================
-if(chats.length===0){
-  document.querySelector(".new-chat").click();
-}else{
-  currentChatId=chats[0].id;
+if (chats.length === 0) {
+    document.querySelector(".new-chat").click();
+} else {
+    currentChatId = chats[0].id;
 }
+
 renderHistory();
 renderChat();
