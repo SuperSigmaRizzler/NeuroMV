@@ -14,7 +14,7 @@ MARKDOWN
 ========================= */
 function md(t){
 return t
-.replace(/`([^`]+)`/g,"<code>$1</code>")
+.replace(/`([^`]+)`g,"<code>$1</code>")
 .replace(/\*\*(.*?)\*\*/g,"<b>$1</b>")
 .replace(/\_(.*?)\_/g,"<i>$1</i>")
 .replace(/\n/g,"<br>");
@@ -308,15 +308,20 @@ fd.append("file",selectedFile);
 
 removeFile();
 
-let lower=text.toLowerCase();
+let lower=text.toLowerCase().trim();
 
 let isGenerate =
-lower.includes("generate image") ||
-lower.includes("generate foto") ||
-lower.includes("buat gambar") ||
-lower.includes("buatkan gambar") ||
-lower.includes("buat foto") ||
-lower.includes("buatkan foto");
+lower.startsWith("buat gambar") ||
+lower.startsWith("buatkan gambar") ||
+lower.startsWith("buat foto") ||
+lower.startsWith("buatkan foto") ||
+lower.startsWith("generate image") ||
+lower.startsWith("generate foto") ||
+lower.startsWith("create image") ||
+lower.startsWith("create photo") ||
+lower.startsWith("tolong buat gambar") ||
+lower.includes("buat wallpaper") ||
+lower.includes("buat ilustrasi");
 
 if(isGenerate){
 
@@ -331,17 +336,31 @@ body:fd
 
 let d=await r.json();
 
-loading.remove();
-
 if(d.error){
+loading.remove();
 addMessage("bot",d.error);
 return;
 }
+
+let img = new Image();
+
+img.onload=function(){
+
+loading.remove();
 
 addMessage("bot",`
 <b>Image Created ✅</b><br><br>
 <img src="${d.image}" class="chat-image fade-in-img">
 `);
+
+};
+
+img.onerror=function(){
+loading.remove();
+addMessage("bot","❌ Gagal load gambar.");
+};
+
+img.src=d.image;
 
 }catch(err){
 
@@ -365,7 +384,7 @@ let d=await r.json();
 
 loading.remove();
 
-addMessage("bot",d.reply || "❌ Tidak ada respon.");
+addMessage("bot", d.reply || "❌ Tidak ada respon.");
 
 }catch(err){
 
@@ -377,7 +396,7 @@ addMessage("bot","❌ Gagal koneksi server.");
 }
 
 /* =========================
-ENTER PC ONLY
+ENTER SEND PC
 ========================= */
 msg.addEventListener("keydown",function(e){
 
