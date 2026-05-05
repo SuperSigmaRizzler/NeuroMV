@@ -4,7 +4,13 @@ import os
 import json
 import urllib.parse
 from datetime import datetime
-import replicate
+
+# SAFE IMPORT (biar gak crash kalau belum install)
+try:
+    import replicate
+except:
+    replicate = None
+
 import tempfile
 
 app = Flask(__name__)
@@ -16,11 +22,10 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN", "").strip()
 
 GROQ_MODEL = "llama-3.1-8b-instant"
-
 LIMIT_FILE = "limits.json"
 
 # =========================
-# MEMORY (CHAT HISTORY)
+# MEMORY
 # =========================
 MEMORY = {}
 MAX_HISTORY = 10
@@ -41,7 +46,6 @@ def add_history(ip, role, content):
 def load_limits():
     if not os.path.exists(LIMIT_FILE):
         return {}
-
     try:
         with open(LIMIT_FILE, "r") as f:
             return json.load(f)
@@ -57,7 +61,6 @@ def get_ip():
     return ip.split(",")[0].strip()
 
 def check_limit(ip, key, max_limit):
-
     data = load_limits()
     today = str(datetime.now().date())
 
@@ -84,10 +87,7 @@ def ask_groq(prompt, ip):
     history = get_history(ip)
 
     messages = [
-        {
-            "role": "system",
-            "content": "Kamu adalah NeuroMV AI. Jawab santai, nyambung, dan ingat percakapan."
-        }
+        {"role": "system", "content": "Kamu adalah NeuroMV AI. Jawab santai, nyambung, dan ingat percakapan."}
     ]
 
     messages += history
@@ -122,17 +122,22 @@ def ask_groq(prompt, ip):
         return "❌ Groq gagal"
 
 # =========================
-# REPLICATE VISION
+# REPLICATE VISION (SAFE)
 # =========================
 def replicate_caption(img_bytes):
+    if replicate is None or not REPLICATE_API_TOKEN:
+        return None
+
     try:
+        os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
             f.write(img_bytes)
-            temp_path = f.name
+            path = f.name
 
         output = replicate.run(
             "salesforce/blip-2:latest",
-            input={"image": open(temp_path, "rb")}
+            input={"image": open(path, "rb")}
         )
 
         return output
@@ -148,7 +153,7 @@ def home():
     return render_template("index.html")
 
 # =========================
-# CHAT / IMAGE / VISION
+# MAIN ROUTE
 # =========================
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -160,7 +165,7 @@ def chat():
     lower = msg.lower()
 
     # =====================
-    # 🎨 IMAGE GENERATE
+    # 🎨 IMAGE GENERATE (FIXED)
     # =====================
     if any(k in lower for k in [
         "buat gambar","buatkan gambar","generate image",
@@ -177,17 +182,22 @@ def chat():
 
         prompt = f"{msg}, anime style, masterpiece, best quality, ultra detailed"
 
-        image_url = "https://image.pollinations.ai/prompt/" + urllib.parse.quote(prompt)
+        encoded = urllib.parse.quote(prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded}?seed={int(datetime.now().timestamp())}"
 
         return jsonify({
             "reply": f"""
-<b>Creating Image...</b><br><br>
-<img src="{image_url}" class="chat-image fade-in-img" onload="this.previousSibling.innerHTML='Image Created ✅'">
+<div class="img-box">
+<b id="status">🎨 Creating Image...</b><br><br>
+<img src="{image_url}" class="chat-image"
+onload="document.getElementById('status').innerHTML='Image Created ✅'"
+onerror="document.getElementById('status').innerHTML='❌ Gagal generate image (retry ya)'">
+</div>
 """
         })
 
     # =====================
-    # 🖼️ VISION (REPLICATE)
+    # 🖼️ VISION (OPTIONAL)
     # =====================
     if file and file.filename != "":
 
@@ -198,12 +208,11 @@ def chat():
 
         try:
             img_bytes = file.read()
-
             caption = replicate_caption(img_bytes)
 
             if not caption:
                 return jsonify({
-                    "reply": "❌ Vision gagal (Replicate error)."
+                    "reply": "⚠️ Vision belum aktif / gagal (cek Replicate API)."
                 })
 
             prompt = f"""
@@ -217,19 +226,15 @@ Jawab santai.
 """
 
             reply = ask_groq(prompt, ip)
-
             return jsonify({"reply": reply})
 
         except Exception as e:
-            return jsonify({
-                "reply": f"❌ Vision Error: {str(e)}"
-            })
+            return jsonify({"reply": f"❌ Vision Error: {str(e)}"})
 
     # =====================
     # 💬 NORMAL CHAT
     # =====================
     reply = ask_groq(msg if msg else "Halo", ip)
-
     return jsonify({"reply": reply})
 
 # =========================
