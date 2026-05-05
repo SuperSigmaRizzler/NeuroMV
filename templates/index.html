@@ -1,57 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NeuroMV</title>
-
-<link rel="stylesheet" href="/static/style.css">
+    <meta charset="UTF-8">
+    <title>NeuroMV</title>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
-<!-- SIDEBAR -->
-<div class="sidebar">
+<div class="container">
 
-    <div class="logo">
-        NeuroMV
-    </div>
+    <div class="chat-box" id="chat-box"></div>
 
-    <button class="new-chat-btn" onclick="newChat()">
-        + New Chat
-    </button>
+    <!-- PREVIEW IMAGE -->
+    <div id="preview-box"></div>
 
-    <div id="history"></div>
-
-</div>
-
-<!-- MAIN -->
-<div class="main">
-
-    <!-- CHAT -->
-    <div id="chatbox"></div>
-
-    <!-- PREVIEW -->
-    <div id="previewBox"></div>
-
-    <!-- INPUT -->
-    <div class="input-area">
-
-        <button class="plus-btn" onclick="openFile()">+</button>
-
-        <input type="file" id="fileInput" accept="image/*" hidden>
-
-        <input
-            type="text"
-            id="msg"
-            placeholder="Message NeuroMV..."
-            autocomplete="off"
-        >
-
-        <button class="send-btn" onclick="sendMsg()">
-            Send
-        </button>
-
-    </div>
+    <!-- FORM -->
+    <form id="chat-form">
+        <input type="file" id="file-input" accept="image/*">
+        <textarea id="message" placeholder="Message NeuroMV..."></textarea>
+        <button type="submit">Send</button>
+    </form>
 
 </div>
 
