@@ -2,7 +2,6 @@ from flask import Flask, render_template, request, jsonify
 import requests
 import os
 import json
-import base64
 import urllib.parse
 from datetime import datetime
 
@@ -11,9 +10,16 @@ app = Flask(__name__)
 # =========================
 # CONFIG
 # =========================
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-MODEL_NAME = "gemini-2.0-flash"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+HF_API_KEY = os.getenv("HF_API_KEY", "").strip()
+
 LIMIT_FILE = "limits.json"
+
+# Hugging Face Vision Model
+HF_MODEL = "Salesforce/blip-image-captioning-large"
+
+# Groq Chat Model
+GROQ_MODEL = "llama-3.1-8b-instant"
 
 # =========================
 # LIMIT SYSTEM
@@ -48,7 +54,6 @@ def check_limit(ip, key, max_limit):
             "generate": 0
         }
 
-    # reset harian
     if data[ip]["date"] != today:
         data[ip] = {
             "date": today,
@@ -71,7 +76,7 @@ def home():
     return render_template("index.html")
 
 # =========================
-# CHAT + VISION
+# CHAT ROUTE
 # =========================
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -80,13 +85,9 @@ def chat():
     file = request.files.get("file")
     ip = get_ip()
 
-    parts = []
-
-    # text
-    if msg:
-        parts.append({"text": msg})
-
-    # image
+    # =====================
+    # IMAGE MODE (HF VISION)
+    # =====================
     if file:
 
         if not check_limit(ip, "upload", 10):
@@ -96,56 +97,106 @@ def chat():
 
         try:
             img_bytes = file.read()
-            img_b64 = base64.b64encode(img_bytes).decode("utf-8")
 
-            mime = file.mimetype
-            if not mime:
-                mime = "image/jpeg"
+            hf_url = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
 
-            parts.append({
-                "inline_data": {
-                    "mime_type": mime,
-                    "data": img_b64
-                }
-            })
+            headers = {
+                "Authorization": f"Bearer {HF_API_KEY}"
+            }
+
+            r = requests.post(
+                hf_url,
+                headers=headers,
+                data=img_bytes,
+                timeout=90
+            )
+
+            data = r.json()
+
+            # biasanya list caption
+            if isinstance(data, list) and len(data) > 0:
+                caption = data[0].get("generated_text", "")
+            elif isinstance(data, dict):
+                caption = data.get("generated_text", "")
+            else:
+                caption = "gambar"
+
+            if not caption:
+                caption = "gambar"
+
+            # kalau user kasih pertanyaan
+            final_prompt = f"""
+User mengirim gambar dengan isi: {caption}
+
+Pertanyaan user:
+{msg if msg else 'Jelaskan gambar ini'}
+
+Jawab santai dalam Bahasa Indonesia.
+"""
+
+            reply = ask_groq(final_prompt)
+
+            return jsonify({"reply": reply})
 
         except Exception as e:
             return jsonify({
-                "reply": f"❌ Gagal membaca file: {str(e)}"
+                "reply": f"❌ Vision Error: {str(e)}"
             })
 
-    if not parts:
-        parts = [{"text": "Halo"}]
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-
-    payload = {
-        "contents": [
-            {
-                "parts": parts
-            }
-        ]
-    }
-
+    # =====================
+    # NORMAL CHAT MODE
+    # =====================
     try:
-        r = requests.post(url, json=payload, timeout=60)
-        data = r.json()
-
-        if "candidates" in data:
-            reply = data["candidates"][0]["content"]["parts"][0]["text"]
-            return jsonify({"reply": reply})
-
-        if "error" in data:
-            err = data["error"].get("message", "Unknown error")
-            return jsonify({"reply": f"❌ Gemini Error: {err}"})
-
-        return jsonify({"reply": f"❌ Response tidak dikenal: {data}"})
+        reply = ask_groq(msg if msg else "Halo")
+        return jsonify({"reply": reply})
 
     except Exception as e:
-        return jsonify({"reply": f"❌ Server Error: {str(e)}"})
+        return jsonify({
+            "reply": f"❌ Chat Error: {str(e)}"
+        })
 
 # =========================
-# GENERATE IMAGE
+# GROQ FUNCTION
+# =========================
+def ask_groq(prompt):
+
+    url = "https://api.groq.com/openai/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": """
+Kamu adalah NeuroMV AI.
+Jawab santai, ramah, modern.
+Gunakan markdown seperti **bold**, `code`, _italic_ jika cocok.
+Jangan terlalu formal.
+"""
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.7
+    }
+
+    r = requests.post(url, headers=headers, json=payload, timeout=60)
+    data = r.json()
+
+    if "choices" in data:
+        return data["choices"][0]["message"]["content"]
+
+    return f"❌ Groq Error: {data}"
+
+# =========================
+# IMAGE GENERATION
 # =========================
 @app.route("/generate-image", methods=["POST"])
 def generate_image():
@@ -179,42 +230,14 @@ def summary():
     if not text:
         return jsonify({"title": "💬 New Chat"})
 
-    prompt = f"""
-Buat judul sidebar singkat max 3 kata dari pesan ini.
-Kasih emoji cocok.
+    short = text[:18]
 
-Contoh:
-Apa itu 1+1 = 🧮 Matematika Dasar
-Buat gambar kucing = 🎨 Kucing Lucu
+    if len(text) > 18:
+        short += "..."
 
-Pesan:
-{text}
-"""
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
-
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ]
-    }
-
-    try:
-        r = requests.post(url, json=payload, timeout=30)
-        data = r.json()
-
-        if "candidates" in data:
-            title = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-            return jsonify({"title": title})
-
-        return jsonify({"title": "💬 New Chat"})
-
-    except:
-        return jsonify({"title": "💬 New Chat"})
+    return jsonify({
+        "title": "💬 " + short
+    })
 
 # =========================
 # RUN
