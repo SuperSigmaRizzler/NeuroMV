@@ -5,7 +5,7 @@ import json
 import urllib.parse
 from datetime import datetime
 
-# SAFE IMPORT (biar gak crash kalau belum install)
+# SAFE import (biar gak crash)
 try:
     import replicate
 except:
@@ -78,7 +78,7 @@ def check_limit(ip, key, max_limit):
     return True
 
 # =========================
-# GROQ CHAT (WITH MEMORY)
+# GROQ CHAT
 # =========================
 def ask_groq(prompt, ip):
 
@@ -122,7 +122,7 @@ def ask_groq(prompt, ip):
         return "❌ Groq gagal"
 
 # =========================
-# REPLICATE VISION (SAFE)
+# REPLICATE VISION
 # =========================
 def replicate_caption(img_bytes):
     if replicate is None or not REPLICATE_API_TOKEN:
@@ -146,15 +146,12 @@ def replicate_caption(img_bytes):
         return None
 
 # =========================
-# HOME
+# ROUTES
 # =========================
 @app.route("/")
 def home():
     return render_template("index.html")
 
-# =========================
-# MAIN ROUTE
-# =========================
 @app.route("/chat", methods=["POST"])
 def chat():
 
@@ -165,7 +162,7 @@ def chat():
     lower = msg.lower()
 
     # =====================
-    # 🎨 IMAGE GENERATE (FIXED)
+    # 🎨 IMAGE GENERATE (ANTI GAGAL TOTAL)
     # =====================
     if any(k in lower for k in [
         "buat gambar","buatkan gambar","generate image",
@@ -181,23 +178,52 @@ def chat():
             msg = "anime girl"
 
         prompt = f"{msg}, anime style, masterpiece, best quality, ultra detailed"
-
         encoded = urllib.parse.quote(prompt)
-        image_url = f"https://image.pollinations.ai/prompt/{encoded}?seed={int(datetime.now().timestamp())}"
+
+        base_url = f"https://image.pollinations.ai/prompt/{encoded}"
 
         return jsonify({
             "reply": f"""
 <div class="img-box">
 <b id="status">🎨 Creating Image...</b><br><br>
-<img src="{image_url}" class="chat-image"
-onload="document.getElementById('status').innerHTML='Image Created ✅'"
-onerror="document.getElementById('status').innerHTML='❌ Gagal generate image (retry ya)'">
+<img id="gen-img" class="chat-image" style="display:none;">
 </div>
+
+<script>
+let tries = 0;
+let maxTries = 5;
+
+function loadImage() {{
+    let url = "{base_url}?seed=" + Date.now();
+
+    let img = document.getElementById("gen-img");
+    let status = document.getElementById("status");
+
+    img.onload = function() {{
+        status.innerHTML = "Image Created ✅";
+        img.style.display = "block";
+    }};
+
+    img.onerror = function() {{
+        tries++;
+        if (tries < maxTries) {{
+            status.innerHTML = "Retrying... (" + tries + ")";
+            setTimeout(loadImage, 1000);
+        }} else {{
+            status.innerHTML = "❌ Gagal generate image (server delay)";
+        }}
+    }};
+
+    img.src = url;
+}}
+
+loadImage();
+</script>
 """
         })
 
     # =====================
-    # 🖼️ VISION (OPTIONAL)
+    # 🖼️ VISION
     # =====================
     if file and file.filename != "":
 
@@ -212,7 +238,7 @@ onerror="document.getElementById('status').innerHTML='❌ Gagal generate image (
 
             if not caption:
                 return jsonify({
-                    "reply": "⚠️ Vision belum aktif / gagal (cek Replicate API)."
+                    "reply": "⚠️ Vision belum aktif / error API."
                 })
 
             prompt = f"""
@@ -221,8 +247,6 @@ User mengirim gambar:
 
 Pertanyaan:
 {msg if msg else "Jelaskan gambar ini"}
-
-Jawab santai.
 """
 
             reply = ask_groq(prompt, ip)
@@ -232,7 +256,7 @@ Jawab santai.
             return jsonify({"reply": f"❌ Vision Error: {str(e)}"})
 
     # =====================
-    # 💬 NORMAL CHAT
+    # 💬 CHAT
     # =====================
     reply = ask_groq(msg if msg else "Halo", ip)
     return jsonify({"reply": reply})
