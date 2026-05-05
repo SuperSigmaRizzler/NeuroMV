@@ -11,266 +11,199 @@ const previewBox = document.getElementById("preview-box");
 let chats = JSON.parse(localStorage.getItem("chats") || "[]");
 let currentChatId = null;
 
-// =====================
-// SAVE
-// =====================
-function saveChats() {
-    localStorage.setItem("chats", JSON.stringify(chats));
+function saveChats(){
+  localStorage.setItem("chats", JSON.stringify(chats));
 }
 
 // =====================
 // NEW CHAT
 // =====================
-document.querySelector(".new-chat").onclick = () => {
-    const id = Date.now();
-
-    const chat = {
-        id,
-        title: "New Chat",
-        messages: []
-    };
-
-    chats.unshift(chat);
-    currentChatId = id;
-
-    saveChats();
-    renderHistory();
-    renderChat();
+document.querySelector(".new-chat").onclick = ()=>{
+  const id = Date.now();
+  chats.unshift({id,title:"New Chat",messages:[]});
+  currentChatId = id;
+  saveChats();
+  renderHistory();
+  renderChat();
 };
 
 // =====================
-// RENDER HISTORY
+// HISTORY
 // =====================
-function renderHistory() {
-    historyBox.innerHTML = "";
+function renderHistory(){
+  historyBox.innerHTML="";
+  chats.forEach(c=>{
+    const div=document.createElement("div");
+    div.className="history-item";
 
-    chats.forEach(chat => {
-        const item = document.createElement("div");
-        item.className = "history-item";
-        if (chat.id === currentChatId) item.classList.add("active");
+    const t=document.createElement("span");
+    t.textContent=c.title;
 
-        const title = document.createElement("span");
-        title.textContent = chat.title;
+    const del=document.createElement("button");
+    del.textContent="✖";
+    del.className="delete-chat";
 
-        const del = document.createElement("button");
-        del.textContent = "✖";
-        del.className = "delete-chat";
+    del.onclick=(e)=>{
+      e.stopPropagation();
+      chats=chats.filter(x=>x.id!==c.id);
+      currentChatId=chats[0]?.id;
+      saveChats();
+      renderHistory();
+      renderChat();
+    };
 
-        del.onclick = (e) => {
-            e.stopPropagation();
-            chats = chats.filter(c => c.id !== chat.id);
+    div.onclick=()=>{
+      currentChatId=c.id;
+      renderChat();
+    };
 
-            if (currentChatId === chat.id) {
-                currentChatId = chats[0]?.id || null;
-            }
-
-            saveChats();
-            renderHistory();
-            renderChat();
-        };
-
-        item.onclick = () => {
-            currentChatId = chat.id;
-            renderHistory();
-            renderChat();
-        };
-
-        item.appendChild(title);
-        item.appendChild(del);
-        historyBox.appendChild(item);
-    });
+    div.appendChild(t);
+    div.appendChild(del);
+    historyBox.appendChild(div);
+  });
 }
 
 // =====================
 // RENDER CHAT
 // =====================
-function renderChat() {
-    chatBox.innerHTML = "";
+function renderChat(){
+  chatBox.innerHTML="";
+  const chat=chats.find(c=>c.id===currentChatId);
+  if(!chat)return;
 
-    const chat = chats.find(c => c.id === currentChatId);
-    if (!chat) return;
-
-    chat.messages.forEach(msg => {
-        addMessage(msg.text, msg.role, null, false);
-    });
-
-    scrollBottom();
+  chat.messages.forEach(m=>{
+    addMessage(m.text,m.role,null,false);
+  });
 }
 
 // =====================
-// TITLE GENERATOR
+// TITLE AUTO
 // =====================
-function generateTitle(text) {
-    text = text.trim();
-
-    if (text.toLowerCase().includes("hasil")) {
-        return text.replace(/apa/i, "").trim();
-    }
-
-    if (text.length > 25) {
-        return text.slice(0, 25) + "...";
-    }
-
-    return text;
+function genTitle(t){
+  if(t.toLowerCase().includes("hasil")) return t.replace("apa","");
+  return t.slice(0,20);
 }
 
 // =====================
 // ADD MESSAGE
 // =====================
-function addMessage(text, sender, file=null, save=true) {
-    const div = document.createElement("div");
-    div.className = sender;
+function addMessage(text,role,file=null,save=true){
+  const div=document.createElement("div");
+  div.className=role;
 
-    if (text) {
-        const p = document.createElement("p");
-        p.textContent = text;
-        div.appendChild(p);
-    }
+  if(text){
+    const p=document.createElement("p");
+    p.textContent=text;
+    div.appendChild(p);
+  }
 
-    if (file) {
-        const img = document.createElement("img");
-        img.src = URL.createObjectURL(file);
-        img.className = "chat-image";
-        div.appendChild(img);
-    }
+  if(file){
+    const img=document.createElement("img");
+    img.src=URL.createObjectURL(file);
+    img.className="chat-image";
+    div.appendChild(img);
+  }
 
-    chatBox.appendChild(div);
+  chatBox.appendChild(div);
 
-    if (save) {
-        const chat = chats.find(c => c.id === currentChatId);
-        if (!chat) return;
+  if(save){
+    const chat=chats.find(c=>c.id===currentChatId);
+    chat.messages.push({role,text});
+    if(chat.messages.length===1) chat.title=genTitle(text);
+    saveChats();
+    renderHistory();
+  }
 
-        chat.messages.push({ role: sender, text });
-
-        if (chat.messages.length === 1) {
-            chat.title = generateTitle(text);
-        }
-
-        saveChats();
-        renderHistory();
-    }
+  chatBox.scrollTop=chatBox.scrollHeight;
 }
 
 // =====================
-// PREVIEW IMAGE
+// PREVIEW
 // =====================
-fileInput.addEventListener("change", () => {
-    previewBox.innerHTML = "";
+fileInput.onchange=()=>{
+  previewBox.innerHTML="";
+  const f=fileInput.files[0];
+  if(!f)return;
 
-    const file = fileInput.files[0];
-    if (!file) return;
+  const wrap=document.createElement("div");
+  wrap.className="preview-wrapper";
 
-    const wrapper = document.createElement("div");
-    wrapper.className = "preview-wrapper";
+  const img=document.createElement("img");
+  img.src=URL.createObjectURL(f);
+  img.className="preview-image";
 
-    const img = document.createElement("img");
-    img.src = URL.createObjectURL(file);
-    img.className = "preview-image";
+  const rm=document.createElement("button");
+  rm.textContent="✖";
+  rm.className="remove-btn";
+  rm.onclick=()=>{
+    fileInput.value="";
+    previewBox.innerHTML="";
+  };
 
-    const remove = document.createElement("button");
-    remove.textContent = "✖";
-    remove.className = "remove-btn";
-
-    remove.onclick = () => {
-        fileInput.value = "";
-        previewBox.innerHTML = "";
-    };
-
-    wrapper.appendChild(img);
-    wrapper.appendChild(remove);
-    previewBox.appendChild(wrapper);
-});
+  wrap.appendChild(img);
+  wrap.appendChild(rm);
+  previewBox.appendChild(wrap);
+};
 
 // =====================
-// SEND
+// SEND (FIX TOTAL)
 // =====================
-form.addEventListener("submit", async (e) => {
+form.onsubmit=async(e)=>{
+  e.preventDefault();
+
+  const msg=input.value.trim();
+  const file=fileInput.files[0];
+  if(!msg && !file) return;
+
+  addMessage(msg,"user",file);
+
+  // RESET FIX
+  input.value="";
+  fileInput.value="";
+  previewBox.innerHTML="";
+
+  try{
+    const fd=new FormData();
+    fd.append("message",msg);
+    if(file) fd.append("file",file);
+
+    const res=await fetch("/chat",{method:"POST",body:fd});
+    const data=await res.json();
+
+    if(data.type==="text") addMessage(data.reply,"bot");
+
+    if(data.type==="image"){
+      const div=document.createElement("div");
+      div.className="bot";
+      const img=document.createElement("img");
+      img.src=data.url;
+      img.className="chat-image";
+      div.appendChild(img);
+      chatBox.appendChild(div);
+    }
+
+  }catch{
+    addMessage("❌ Server error","bot");
+  }
+};
+
+// =====================
+// ENTER SEND
+// =====================
+input.onkeydown=(e)=>{
+  if(e.key==="Enter"&&!e.shiftKey){
     e.preventDefault();
-
-    const msg = input.value.trim();
-    const file = fileInput.files[0];
-
-    if (!msg && !file) return;
-
-    addMessage(msg, "user", file);
-
-    // RESET INPUT FIX
-    input.value = "";
-    input.style.height = "auto";
-    fileInput.value = "";
-    previewBox.innerHTML = "";
-
-    try {
-        const fd = new FormData();
-        fd.append("message", msg);
-        if (file) fd.append("file", file);
-
-        const res = await fetch("/chat", {
-            method: "POST",
-            body: fd
-        });
-
-        if (!res.ok) throw new Error("Server error");
-
-        const data = await res.json();
-
-        if (data.type === "text") {
-            addMessage(data.reply, "bot");
-        }
-
-        if (data.type === "image") {
-            const div = document.createElement("div");
-            div.className = "bot";
-
-            const img = document.createElement("img");
-            img.src = data.url;
-            img.className = "chat-image";
-
-            div.appendChild(img);
-            chatBox.appendChild(div);
-        }
-
-    } catch (err) {
-        console.error(err);
-        addMessage("❌ Gagal connect ke server", "bot");
-    }
-
-    scrollBottom();
-});
-
-// =====================
-// ENTER = SEND (PC)
-// =====================
-input.addEventListener("keydown", (e) => {
-    if (window.innerWidth > 768 && e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        form.dispatchEvent(new Event("submit"));
-    }
-});
-
-// =====================
-// AUTO RESIZE
-// =====================
-input.addEventListener("input", () => {
-    input.style.height = "auto";
-    input.style.height = input.scrollHeight + "px";
-});
-
-// =====================
-// SCROLL
-// =====================
-function scrollBottom() {
-    chatBox.scrollTop = chatBox.scrollHeight;
-}
+    form.dispatchEvent(new Event("submit"));
+  }
+};
 
 // =====================
 // INIT
 // =====================
-if (chats.length === 0) {
-    document.querySelector(".new-chat").click();
-} else {
-    currentChatId = chats[0].id;
+if(chats.length===0){
+  document.querySelector(".new-chat").click();
+}else{
+  currentChatId=chats[0].id;
 }
-
 renderHistory();
 renderChat();
