@@ -4,216 +4,146 @@ const chatBox = document.getElementById("chat-box");
 const fileInput = document.getElementById("file-input");
 const previewBox = document.getElementById("preview-box");
 
-// =====================
-// ENTER = SEND (PC ONLY, ROBUST)
-// =====================
-document.addEventListener("keydown", function (e) {
-    const isDesktop = window.innerWidth > 768;
-
-    // hanya aktif kalau fokus di input/textarea message
-    const active = document.activeElement;
-    const inMessageBox =
-        active === input ||
-        (active && (active.id === "message" || active.closest("#message")));
-
-    if (!isDesktop) return;
-    if (!inMessageBox) return;
-    if (e.key !== "Enter") return;
-    if (e.shiftKey) return; // shift+enter = newline
-
-    e.preventDefault();
-
-    if (form) {
-        // paling reliable
-        if (typeof form.requestSubmit === "function") {
-            form.requestSubmit();
-        } else {
-            // fallback lama
-            form.dispatchEvent(new Event("submit", { cancelable: true }));
-        }
+// ENTER SEND (PC)
+document.addEventListener("keydown", (e) => {
+  if (window.innerWidth > 768 && e.key === "Enter" && !e.shiftKey) {
+    if (document.activeElement === input) {
+      e.preventDefault();
+      form.requestSubmit();
     }
+  }
 });
 
-// =====================
-// FILE PREVIEW
-// =====================
-if (fileInput && previewBox) {
-    fileInput.addEventListener("change", () => {
-        previewBox.innerHTML = "";
+// AUTO RESIZE
+input.addEventListener("input", () => {
+  input.style.height = "auto";
+  input.style.height = input.scrollHeight + "px";
+});
 
-        const file = fileInput.files[0];
-        if (!file) return;
+// PREVIEW
+fileInput.addEventListener("change", () => {
+  previewBox.innerHTML = "";
+  const file = fileInput.files[0];
+  if (!file) return;
 
-        const img = document.createElement("img");
-        img.src = URL.createObjectURL(file);
-        img.className = "preview-image";
+  const img = document.createElement("img");
+  img.src = URL.createObjectURL(file);
+  img.className = "preview-image";
+  previewBox.appendChild(img);
+});
 
-        const remove = document.createElement("button");
-        remove.innerText = "✖";
-        remove.onclick = () => {
-            fileInput.value = "";
-            previewBox.innerHTML = "";
-        };
+// SEND
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
 
-        previewBox.appendChild(img);
-        previewBox.appendChild(remove);
-    });
-}
+  const msg = input.value.trim();
+  const file = fileInput.files[0];
 
-// =====================
-// SEND MESSAGE
-// =====================
-if (form) {
-    form.addEventListener("submit", async (e) => {
-        e.preventDefault();
+  if (!msg && !file) return;
 
-        const msg = (input?.value || "").trim();
-        const file = fileInput?.files?.[0];
+  addMessage(msg, "user", file);
 
-        if (!msg && !file) return;
+  input.value = "";
+  previewBox.innerHTML = "";
 
-        addMessage(msg, "user", file);
+  const fd = new FormData();
+  fd.append("message", msg);
+  if (file) fd.append("file", file);
 
-        if (input) input.value = "";
-        if (previewBox) previewBox.innerHTML = "";
+  const res = await fetch("/chat", {
+    method: "POST",
+    body: fd
+  });
 
-        const formData = new FormData();
-        formData.append("message", msg);
-        if (file) formData.append("file", file);
+  const data = await res.json();
 
-        let data;
-        try {
-            const res = await fetch("/chat", {
-                method: "POST",
-                body: formData
-            });
-            data = await res.json();
-        } catch (err) {
-            addBotText("❌ Network error");
-            return;
-        }
+  if (data.type === "text") typeEffect(data.reply);
+  if (data.type === "image") createImage(data.url);
 
-        // TEXT
-        if (data.type === "text") {
-            typeEffect(data.reply || "");
-        }
+  scrollBottom();
+});
 
-        // IMAGE
-        if (data.type === "image") {
-            createImage(data.url);
-        }
+// USER MESSAGE
+function addMessage(text, sender, file=null) {
+  const div = document.createElement("div");
+  div.className = sender;
 
-        scrollBottom();
-    });
-}
-
-// =====================
-// ADD USER MESSAGE
-// =====================
-function addMessage(text, sender, file = null) {
-    const div = document.createElement("div");
-    div.className = sender;
-
-    if (text) {
-        const p = document.createElement("p");
-        p.textContent = text;
-        div.appendChild(p);
-    }
-
-    if (file) {
-        const img = document.createElement("img");
-        img.src = URL.createObjectURL(file);
-        img.className = "chat-image";
-        div.appendChild(img);
-    }
-
-    chatBox.appendChild(div);
-    scrollBottom();
-}
-
-// =====================
-// BOT TEXT (NO TYPING)
-// =====================
-function addBotText(text) {
-    const div = document.createElement("div");
-    div.className = "bot";
+  if (text) {
     const p = document.createElement("p");
     p.textContent = text;
     div.appendChild(p);
-    chatBox.appendChild(div);
-    scrollBottom();
-}
+  }
 
-// =====================
-// TYPING EFFECT
-// =====================
-function typeEffect(text) {
-    const div = document.createElement("div");
-    div.className = "bot";
-
-    const p = document.createElement("p");
-    div.appendChild(p);
-    chatBox.appendChild(div);
-
-    let i = 0;
-    function typing() {
-        if (i < text.length) {
-            p.textContent += text.charAt(i);
-            i++;
-            setTimeout(typing, 15);
-        }
-    }
-    typing();
-    scrollBottom();
-}
-
-// =====================
-// IMAGE GENERATE (RETRY)
-// =====================
-function createImage(url) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "bot";
-
-    const status = document.createElement("p");
-    status.textContent = "🎨 Creating Image...";
-
+  if (file) {
     const img = document.createElement("img");
+    img.src = URL.createObjectURL(file);
     img.className = "chat-image";
-    img.style.display = "none";
+    div.appendChild(img);
+  }
 
-    wrapper.appendChild(status);
-    wrapper.appendChild(img);
-    chatBox.appendChild(wrapper);
-
-    let retry = 0;
-
-    function loadImage() {
-        img.src = url + "?t=" + Date.now();
-
-        img.onload = () => {
-            status.textContent = "Image Created ✅";
-            img.style.display = "block";
-        };
-
-        img.onerror = () => {
-            retry++;
-            if (retry < 6) {
-                status.textContent = "Retrying... " + retry;
-                setTimeout(loadImage, 1500);
-            } else {
-                status.textContent = "❌ Gagal generate image";
-            }
-        };
-    }
-
-    loadImage();
-    scrollBottom();
+  chatBox.appendChild(div);
 }
 
-// =====================
+// TYPING
+function typeEffect(text) {
+  const div = document.createElement("div");
+  div.className = "bot";
+
+  const p = document.createElement("p");
+  div.appendChild(p);
+  chatBox.appendChild(div);
+
+  let i = 0;
+  function typing() {
+    if (i < text.length) {
+      p.textContent += text[i++];
+      setTimeout(typing, 10);
+    }
+  }
+  typing();
+}
+
+// IMAGE
+function createImage(url) {
+  const div = document.createElement("div");
+  div.className = "bot";
+
+  const status = document.createElement("p");
+  status.textContent = "🎨 Creating Image...";
+
+  const img = document.createElement("img");
+  img.className = "chat-image";
+  img.style.display = "none";
+
+  div.appendChild(status);
+  div.appendChild(img);
+  chatBox.appendChild(div);
+
+  let retry = 0;
+
+  function load() {
+    img.src = url + "?t=" + Date.now();
+
+    img.onload = () => {
+      status.textContent = "Image Created ✅";
+      img.style.display = "block";
+    };
+
+    img.onerror = () => {
+      retry++;
+      if (retry < 5) {
+        status.textContent = "Retrying...";
+        setTimeout(load, 1500);
+      } else {
+        status.textContent = "❌ Gagal generate image";
+      }
+    };
+  }
+
+  load();
+}
+
 // SCROLL
-// =====================
 function scrollBottom() {
-    if (!chatBox) return;
-    chatBox.scrollTop = chatBox.scrollHeight;
+  chatBox.scrollTop = chatBox.scrollHeight;
 }

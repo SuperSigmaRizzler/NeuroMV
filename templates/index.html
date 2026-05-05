@@ -1,30 +1,44 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>NeuroMV</title>
-    <link rel="stylesheet" href="/static/style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NeuroMV</title>
+  <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
 
 <div class="app">
 
-    <!-- CHAT AREA -->
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="logo">NeuroMV</div>
+    <button class="new-chat">+ New Chat</button>
+    <div class="history" id="history"></div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
     <div class="chat-box" id="chat-box"></div>
 
     <!-- PREVIEW -->
-    <div id="preview-box"></div>
+    <div id="preview-box" class="preview-box"></div>
 
-    <!-- INPUT AREA -->
+    <!-- INPUT -->
     <form id="chat-form" class="input-area">
-        <input type="file" id="file-input" accept="image/*">
-        <textarea id="message" placeholder="Message NeuroMV..."></textarea>
-        <button type="submit">Send</button>
+      <label class="file-btn">
+        +
+        <input type="file" id="file-input" accept="image/*" hidden>
+      </label>
+
+      <textarea id="message" placeholder="Message NeuroMV..." rows="1"></textarea>
+
+      <button type="submit" class="send-btn">Send</button>
     </form>
+  </main>
 
 </div>
 
-<script src="/static/script.js"></script>
-
+<script src="/static/script.js" defer></script>
 </body>
 </html>
