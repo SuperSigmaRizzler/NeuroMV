@@ -4,6 +4,8 @@ import os
 import json
 import urllib.parse
 from datetime import datetime
+import replicate
+import tempfile
 
 app = Flask(__name__)
 
@@ -11,12 +13,27 @@ app = Flask(__name__)
 # CONFIG
 # =========================
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-HF_API_KEY   = os.getenv("HF_API_KEY", "").strip()
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN", "").strip()
 
 GROQ_MODEL = "llama-3.1-8b-instant"
-HF_MODEL   = "nlpconnect/vit-gpt2-image-captioning"
 
 LIMIT_FILE = "limits.json"
+
+# =========================
+# MEMORY (CHAT HISTORY)
+# =========================
+MEMORY = {}
+MAX_HISTORY = 10
+
+def get_history(ip):
+    if ip not in MEMORY:
+        MEMORY[ip] = []
+    return MEMORY[ip]
+
+def add_history(ip, role, content):
+    MEMORY[ip].append({"role": role, "content": content})
+    if len(MEMORY[ip]) > MAX_HISTORY:
+        MEMORY[ip] = MEMORY[ip][-MAX_HISTORY:]
 
 # =========================
 # LIMIT SYSTEM
@@ -58,11 +75,23 @@ def check_limit(ip, key, max_limit):
     return True
 
 # =========================
-# GROQ CHAT
+# GROQ CHAT (WITH MEMORY)
 # =========================
-def ask_groq(prompt):
+def ask_groq(prompt, ip):
 
     url = "https://api.groq.com/openai/v1/chat/completions"
+
+    history = get_history(ip)
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Kamu adalah NeuroMV AI. Jawab santai, nyambung, dan ingat percakapan."
+        }
+    ]
+
+    messages += history
+    messages.append({"role": "user", "content": prompt})
 
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -71,20 +100,7 @@ def ask_groq(prompt):
 
     payload = {
         "model": GROQ_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": """
-Kamu adalah NeuroMV AI.
-Jawab santai, modern, ramah.
-Gunakan markdown seperti **bold**, `code`, _italic_ bila cocok.
-"""
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
+        "messages": messages,
         "temperature": 0.7
     }
 
@@ -93,51 +109,36 @@ Gunakan markdown seperti **bold**, `code`, _italic_ bila cocok.
         data = r.json()
 
         if "choices" in data:
-            return data["choices"][0]["message"]["content"]
+            reply = data["choices"][0]["message"]["content"]
 
-        return f"❌ Groq Error: {data}"
+            add_history(ip, "user", prompt)
+            add_history(ip, "assistant", reply)
+
+            return reply
+
+        return "❌ Groq Error"
 
     except:
-        return "❌ Groq tidak merespon."
+        return "❌ Groq gagal"
 
 # =========================
-# HF VISION (ANTI ERROR)
+# REPLICATE VISION
 # =========================
-def hf_caption(img_bytes):
+def replicate_caption(img_bytes):
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
+            f.write(img_bytes)
+            temp_path = f.name
 
-    urls = [
-        f"https://api-inference.huggingface.co/models/{HF_MODEL}",
-        f"https://router.huggingface.co/hf-inference/models/{HF_MODEL}"
-    ]
+        output = replicate.run(
+            "salesforce/blip-2:latest",
+            input={"image": open(temp_path, "rb")}
+        )
 
-    headers = {
-        "Authorization": f"Bearer {HF_API_KEY}"
-    }
+        return output
 
-    for url in urls:
-        try:
-            r = requests.post(url, headers=headers, data=img_bytes, timeout=120)
-
-            raw = r.text.strip()
-
-            try:
-                data = r.json()
-            except:
-                continue
-
-            if isinstance(data, dict) and "error" in data:
-                continue
-
-            if isinstance(data, list) and len(data) > 0:
-                return data[0].get("generated_text", "gambar")
-
-            if isinstance(data, dict) and "generated_text" in data:
-                return data["generated_text"]
-
-        except:
-            continue
-
-    return None
+    except:
+        return None
 
 # =========================
 # HOME
@@ -159,45 +160,50 @@ def chat():
     lower = msg.lower()
 
     # =====================
-    # AUTO GENERATE IMAGE
+    # 🎨 IMAGE GENERATE
     # =====================
     if any(k in lower for k in [
         "buat gambar","buatkan gambar","generate image",
-        "buat foto","buatkan foto","gambar","ilustrasi",
-        "anime","lukisan","draw"
+        "buat foto","buatkan foto","anime","gambar"
     ]):
 
         if not check_limit(ip, "generate", 10):
             return jsonify({
-                "reply": "⚠️ Limit generate image hari ini habis (10x)."
+                "reply": "⚠️ Limit generate image habis (10x)."
             })
 
-        prompt = f"{msg}, anime style, high quality, 4k, detailed, cinematic lighting"
+        if not msg:
+            msg = "anime girl"
+
+        prompt = f"{msg}, anime style, masterpiece, best quality, ultra detailed"
 
         image_url = "https://image.pollinations.ai/prompt/" + urllib.parse.quote(prompt)
 
         return jsonify({
-            "reply": f"<b>Image Created ✅</b><br><br><img src='{image_url}' class='chat-image fade-in-img'>"
+            "reply": f"""
+<b>Creating Image...</b><br><br>
+<img src="{image_url}" class="chat-image fade-in-img" onload="this.previousSibling.innerHTML='Image Created ✅'">
+"""
         })
 
     # =====================
-    # VISION MODE
+    # 🖼️ VISION (REPLICATE)
     # =====================
     if file and file.filename != "":
 
         if not check_limit(ip, "upload", 10):
             return jsonify({
-                "reply": "⚠️ Limit upload gambar hari ini habis (10x)."
+                "reply": "⚠️ Limit upload gambar habis (10x)."
             })
 
         try:
             img_bytes = file.read()
 
-            caption = hf_caption(img_bytes)
+            caption = replicate_caption(img_bytes)
 
             if not caption:
                 return jsonify({
-                    "reply": "❌ Vision gagal (HF sedang error / model tidak tersedia)."
+                    "reply": "❌ Vision gagal (Replicate error)."
                 })
 
             prompt = f"""
@@ -210,7 +216,7 @@ Pertanyaan:
 Jawab santai.
 """
 
-            reply = ask_groq(prompt)
+            reply = ask_groq(prompt, ip)
 
             return jsonify({"reply": reply})
 
@@ -220,9 +226,9 @@ Jawab santai.
             })
 
     # =====================
-    # NORMAL CHAT
+    # 💬 NORMAL CHAT
     # =====================
-    reply = ask_groq(msg if msg else "Halo")
+    reply = ask_groq(msg if msg else "Halo", ip)
 
     return jsonify({"reply": reply})
 
