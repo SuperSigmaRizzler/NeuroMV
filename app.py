@@ -12,6 +12,7 @@ app = Flask(__name__)
 # CONFIG
 # =========================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+MODEL_NAME = "gemini-2.0-flash"
 LIMIT_FILE = "limits.json"
 
 # =========================
@@ -70,7 +71,7 @@ def home():
     return render_template("index.html")
 
 # =========================
-# CHAT + VISION GEMINI
+# CHAT + VISION
 # =========================
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -85,7 +86,7 @@ def chat():
     if msg:
         parts.append({"text": msg})
 
-    # image upload
+    # image
     if file:
 
         if not check_limit(ip, "upload", 10):
@@ -113,11 +114,10 @@ def chat():
                 "reply": f"❌ Gagal membaca file: {str(e)}"
             })
 
-    # kalau kosong
     if not parts:
         parts = [{"text": "Halo"}]
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
 
     payload = {
         "contents": [
@@ -131,24 +131,21 @@ def chat():
         r = requests.post(url, json=payload, timeout=60)
         data = r.json()
 
-        # sukses
         if "candidates" in data:
             reply = data["candidates"][0]["content"]["parts"][0]["text"]
             return jsonify({"reply": reply})
 
-        # error dari Gemini
         if "error" in data:
             err = data["error"].get("message", "Unknown error")
             return jsonify({"reply": f"❌ Gemini Error: {err}"})
 
-        # fallback
         return jsonify({"reply": f"❌ Response tidak dikenal: {data}"})
 
     except Exception as e:
         return jsonify({"reply": f"❌ Server Error: {str(e)}"})
 
 # =========================
-# IMAGE GENERATION
+# GENERATE IMAGE
 # =========================
 @app.route("/generate-image", methods=["POST"])
 def generate_image():
@@ -172,7 +169,7 @@ def generate_image():
     })
 
 # =========================
-# AI SUMMARY TITLE
+# SUMMARY TITLE
 # =========================
 @app.route("/summary", methods=["POST"])
 def summary():
@@ -185,6 +182,7 @@ def summary():
     prompt = f"""
 Buat judul sidebar singkat max 3 kata dari pesan ini.
 Kasih emoji cocok.
+
 Contoh:
 Apa itu 1+1 = 🧮 Matematika Dasar
 Buat gambar kucing = 🎨 Kucing Lucu
@@ -193,7 +191,7 @@ Pesan:
 {text}
 """
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
 
     payload = {
         "contents": [
