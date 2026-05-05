@@ -45,18 +45,10 @@ def check_limit(ip, key, max_limit):
     today = str(datetime.now().date())
 
     if ip not in data:
-        data[ip] = {
-            "date": today,
-            "upload": 0,
-            "generate": 0
-        }
+        data[ip] = {"date": today, "upload": 0, "generate": 0}
 
     if data[ip]["date"] != today:
-        data[ip] = {
-            "date": today,
-            "upload": 0,
-            "generate": 0
-        }
+        data[ip] = {"date": today, "upload": 0, "generate": 0}
 
     if data[ip][key] >= max_limit:
         return False
@@ -84,9 +76,8 @@ def ask_groq(prompt):
                 "role": "system",
                 "content": """
 Kamu adalah NeuroMV AI.
-Jawab santai, ramah, modern.
+Jawab santai, modern, ramah.
 Gunakan markdown seperti **bold**, `code`, _italic_ bila cocok.
-Jangan terlalu formal.
 """
             },
             {
@@ -97,17 +88,56 @@ Jangan terlalu formal.
         "temperature": 0.7
     }
 
-    r = requests.post(url, headers=headers, json=payload, timeout=60)
-
     try:
+        r = requests.post(url, headers=headers, json=payload, timeout=60)
         data = r.json()
+
+        if "choices" in data:
+            return data["choices"][0]["message"]["content"]
+
+        return f"❌ Groq Error: {data}"
+
     except:
-        return "❌ Groq tidak merespon dengan benar."
+        return "❌ Groq tidak merespon."
 
-    if "choices" in data:
-        return data["choices"][0]["message"]["content"]
+# =========================
+# HF VISION (ANTI ERROR)
+# =========================
+def hf_caption(img_bytes):
 
-    return f"❌ Groq Error: {data}"
+    urls = [
+        f"https://api-inference.huggingface.co/models/{HF_MODEL}",
+        f"https://router.huggingface.co/hf-inference/models/{HF_MODEL}"
+    ]
+
+    headers = {
+        "Authorization": f"Bearer {HF_API_KEY}"
+    }
+
+    for url in urls:
+        try:
+            r = requests.post(url, headers=headers, data=img_bytes, timeout=120)
+
+            raw = r.text.strip()
+
+            try:
+                data = r.json()
+            except:
+                continue
+
+            if isinstance(data, dict) and "error" in data:
+                continue
+
+            if isinstance(data, list) and len(data) > 0:
+                return data[0].get("generated_text", "gambar")
+
+            if isinstance(data, dict) and "generated_text" in data:
+                return data["generated_text"]
+
+        except:
+            continue
+
+    return None
 
 # =========================
 # HOME
@@ -117,14 +147,38 @@ def home():
     return render_template("index.html")
 
 # =========================
-# CHAT + VISION
+# CHAT / IMAGE / VISION
 # =========================
 @app.route("/chat", methods=["POST"])
 def chat():
 
-    msg = request.form.get("message", "").strip()
+    msg  = request.form.get("message", "").strip()
     file = request.files.get("file")
-    ip = get_ip()
+    ip   = get_ip()
+
+    lower = msg.lower()
+
+    # =====================
+    # AUTO GENERATE IMAGE
+    # =====================
+    if any(k in lower for k in [
+        "buat gambar","buatkan gambar","generate image",
+        "buat foto","buatkan foto","gambar","ilustrasi",
+        "anime","lukisan","draw"
+    ]):
+
+        if not check_limit(ip, "generate", 10):
+            return jsonify({
+                "reply": "⚠️ Limit generate image hari ini habis (10x)."
+            })
+
+        prompt = f"{msg}, anime style, high quality, 4k, detailed, cinematic lighting"
+
+        image_url = "https://image.pollinations.ai/prompt/" + urllib.parse.quote(prompt)
+
+        return jsonify({
+            "reply": f"<b>Image Created ✅</b><br><br><img src='{image_url}' class='chat-image fade-in-img'>"
+        })
 
     # =====================
     # VISION MODE
@@ -139,52 +193,21 @@ def chat():
         try:
             img_bytes = file.read()
 
-            url = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+            caption = hf_caption(img_bytes)
 
-            headers = {
-                "Authorization": f"Bearer {HF_API_KEY}"
-            }
-
-            r = requests.post(
-                url,
-                headers=headers,
-                data=img_bytes,
-                timeout=120
-            )
-
-            raw = r.text.strip()
-
-            try:
-                data = r.json()
-            except:
+            if not caption:
                 return jsonify({
-                    "reply": f"❌ HF Error: {raw[:300]}"
+                    "reply": "❌ Vision gagal (HF sedang error / model tidak tersedia)."
                 })
 
-            caption = "gambar"
-
-            if isinstance(data, list) and len(data) > 0:
-                caption = data[0].get("generated_text", "gambar")
-
-            elif isinstance(data, dict):
-
-                if "generated_text" in data:
-                    caption = data["generated_text"]
-
-                elif "error" in data:
-                    return jsonify({
-                        "reply": f"❌ HF Error: {data['error']}"
-                    })
-
-            # Gabung ke AI chat
             prompt = f"""
-User mengirim gambar dengan isi:
+User mengirim gambar:
 {caption}
 
-Pertanyaan user:
-{msg if msg else 'Jelaskan gambar ini'}
+Pertanyaan:
+{msg if msg else "Jelaskan gambar ini"}
 
-Jawab santai dalam Bahasa Indonesia.
+Jawab santai.
 """
 
             reply = ask_groq(prompt)
@@ -199,60 +222,9 @@ Jawab santai dalam Bahasa Indonesia.
     # =====================
     # NORMAL CHAT
     # =====================
-    try:
-        reply = ask_groq(msg if msg else "Halo")
-        return jsonify({"reply": reply})
+    reply = ask_groq(msg if msg else "Halo")
 
-    except Exception as e:
-        return jsonify({
-            "reply": f"❌ Chat Error: {str(e)}"
-        })
-
-# =========================
-# GENERATE IMAGE
-# =========================
-@app.route("/generate-image", methods=["POST"])
-def generate_image():
-
-    ip = get_ip()
-
-    if not check_limit(ip, "generate", 10):
-        return jsonify({
-            "error": "⚠️ Limit generate image hari ini habis (10x)."
-        })
-
-    prompt = request.form.get("message", "").strip()
-
-    if not prompt:
-        prompt = "beautiful fantasy landscape"
-
-    image_url = "https://image.pollinations.ai/prompt/" + urllib.parse.quote(prompt)
-
-    return jsonify({
-        "image": image_url
-    })
-
-# =========================
-# SUMMARY TITLE
-# =========================
-@app.route("/summary", methods=["POST"])
-def summary():
-
-    text = request.form.get("text", "").strip()
-
-    if not text:
-        return jsonify({
-            "title": "💬 New Chat"
-        })
-
-    title = text[:18]
-
-    if len(text) > 18:
-        title += "..."
-
-    return jsonify({
-        "title": "💬 " + title
-    })
+    return jsonify({"reply": reply})
 
 # =========================
 # RUN
