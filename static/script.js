@@ -1,192 +1,239 @@
-// ===== SAFE STORAGE =====
-function loadChats(){
-  try{
-    const d = JSON.parse(localStorage.getItem("chats"));
-    return Array.isArray(d) ? d : [];
-  }catch{ return []; }
+let chats=[], archive=[], current=null, lastDeleted=null;
+
+const chat=document.getElementById("chat");
+const history=document.getElementById("history");
+const archiveBox=document.getElementById("archive");
+const form=document.getElementById("form");
+const input=document.getElementById("input");
+const file=document.getElementById("file");
+const preview=document.getElementById("preview");
+
+// MENU
+function toggleMenu(){
+ document.querySelector(".sidebar").classList.toggle("open");
 }
-let chats = loadChats();
-let current = null;
 
-// ===== ELEMENTS =====
-const chatBox = document.getElementById("chatBox");
-const historyBox = document.getElementById("history");
-const form = document.getElementById("form");
-const input = document.getElementById("input");
-const file = document.getElementById("file");
-const preview = document.getElementById("preview");
-const sendBtn = document.getElementById("send");
-const newBtn = document.getElementById("newChat");
+// NEW CHAT
+function newChat(){
+ const id="c"+Date.now();
+ chats.unshift({id,title:"New Chat",msg:[]});
+ current=id;
+ renderAll();
+}
 
-// ===== SAVE =====
-function save(){ localStorage.setItem("chats", JSON.stringify(chats)); }
+// RENDER
+function renderAll(){
+ renderHistory();
+ renderArchive();
+ renderChat();
+}
 
-// ===== NEW CHAT =====
-newBtn.onclick = ()=>{
-  const id = "c"+Date.now();
-  chats.unshift({id, title:"New Chat", messages:[]});
-  current = id;
-  save(); renderHistory(); renderChat();
-};
-
-// ===== HISTORY =====
 function renderHistory(){
-  historyBox.innerHTML="";
-  chats.forEach(c=>{
-    const d=document.createElement("div");
-    d.className="history-item"+(c.id===current?" active":"");
-    d.innerHTML=`<span>${c.title}</span><button class="del">✖</button>`;
-    d.onclick=()=>{ current=c.id; renderHistory(); renderChat(); };
-    d.querySelector(".del").onclick=(e)=>{
-      e.stopPropagation();
-      chats=chats.filter(x=>x.id!==c.id);
-      current=chats[0]?.id||null;
-      save(); renderHistory(); renderChat();
-    };
-    historyBox.appendChild(d);
-  });
+ history.innerHTML="";
+ chats.forEach(c=>{
+  let d=document.createElement("div");
+  d.className="history-item";
+  d.innerHTML=`${c.title}
+  <div>
+   <button onclick="archiveChat('${c.id}')">📦</button>
+   <button onclick="deleteChat('${c.id}')">✖</button>
+  </div>`;
+  d.onclick=()=>{current=c.id;renderChat();}
+  history.appendChild(d);
+ });
 }
 
-// ===== RENDER CHAT =====
+function renderArchive(){
+ archiveBox.innerHTML="";
+ archive.forEach(c=>{
+  let d=document.createElement("div");
+  d.className="history-item";
+  d.innerHTML=`${c.title}
+  <button onclick="restoreChat('${c.id}')">↩</button>`;
+  archiveBox.appendChild(d);
+ });
+}
+
 function renderChat(){
-  chatBox.innerHTML="";
-  const c=chats.find(x=>x.id===current);
-  if(!c) return;
-  c.messages.forEach(m=>bubble(m.text, m.role, false));
-  scrollDown();
+ chat.innerHTML="";
+ let c=chats.find(x=>x.id===current);
+ if(!c) return;
+ c.msg.forEach(m=>bubble(m.t,m.r,false));
 }
 
-// ===== TITLE =====
-function genTitle(t){
-  if(t.toLowerCase().includes("hasil")) return t.replace(/apa/i,"").trim();
-  return t.length>24? t.slice(0,24)+"…" : t;
-}
-
-// ===== BUBBLE + TYPING =====
-function bubble(text, role, saveMsg=true){
-  const wrap=document.createElement("div");
-  wrap.className=role;
-  const p=document.createElement("p");
-  wrap.appendChild(p);
-  chatBox.appendChild(wrap);
-
-  let i=0;
-  (function type(){
-    if(i<text.length){
-      p.textContent+=text[i++];
-      setTimeout(type, 12);
-    }
-  })();
-
-  if(saveMsg){
-    const c=chats.find(x=>x.id===current);
-    c.messages.push({role, text});
-    if(c.messages.length===1) c.title=genTitle(text);
-    save(); renderHistory();
+// TYPE EFFECT
+function typeText(el,text){
+ let i=0;
+ function type(){
+  if(i<text.length){
+   el.textContent+=text[i++];
+   requestAnimationFrame(type);
   }
-  scrollDown();
+ }
+ type();
 }
 
-function imageBubble(url){
-  const wrap=document.createElement("div");
-  wrap.className="bot";
-  const status=document.createElement("p");
-  status.textContent="🟡 Creating image...";
-  wrap.appendChild(status);
-  chatBox.appendChild(wrap);
+// BUBBLE
+function bubble(t,r,save=true){
+ let d=document.createElement("div");
+ d.className=r;
+ let p=document.createElement("p");
+ d.appendChild(p);
+ chat.appendChild(d);
 
-  const img=new Image();
-  img.src=url;
-  img.onload=()=>{
-    status.textContent="✅ Image created";
-    wrap.appendChild(img);
-    scrollDown();
-  };
+ typeText(p,t);
+
+ if(save){
+  let c=chats.find(x=>x.id===current);
+  c.msg.push({t,r});
+ }
 }
 
-// ===== PREVIEW =====
+// THINKING
+function showThinking(mode){
+ let d=document.createElement("div");
+ d.className="bot";
+ let p=document.createElement("p");
+
+ if(mode==="image"){
+  p.textContent="🎨 Creating Image...";
+ }else if(mode==="search"){
+  p.textContent="🔍 Searching...";
+ }else{
+  p.textContent="🧠 NeuroMV is thinking...";
+ }
+
+ d.appendChild(p);
+ chat.appendChild(d);
+ return {wrap:d, text:p};
+}
+
+// DELETE
+async function deleteChat(id){
+ let c=chats.find(x=>x.id===id);
+ lastDeleted=c;
+
+ await fetch("/clear_chat",{
+  method:"POST",
+  headers:{"Content-Type":"application/json"},
+  body:JSON.stringify({chat_id:id})
+ });
+
+ chats=chats.filter(x=>x.id!==id);
+ current=chats[0]?.id;
+ renderAll();
+ showUndo();
+}
+
+// UNDO
+function showUndo(){
+ let u=document.createElement("div");
+ u.className="undo";
+ u.innerHTML=`Deleted <button onclick="undo()">Undo</button>`;
+ document.body.appendChild(u);
+ setTimeout(()=>u.remove(),5000);
+}
+
+function undo(){
+ if(!lastDeleted) return;
+ chats.unshift(lastDeleted);
+ current=lastDeleted.id;
+ renderAll();
+}
+
+// ARCHIVE
+function archiveChat(id){
+ let c=chats.find(x=>x.id===id);
+ archive.push(c);
+ chats=chats.filter(x=>x.id!==id);
+ current=chats[0]?.id;
+ renderAll();
+}
+
+function restoreChat(id){
+ let c=archive.find(x=>x.id===id);
+ chats.unshift(c);
+ archive=archive.filter(x=>x.id!==id);
+ current=c.id;
+ renderAll();
+}
+
+// FILE
 file.onchange=()=>{
+ preview.innerHTML="";
+ let f=file.files[0];
+ if(!f) return;
+
+ let w=document.createElement("div");
+ w.className="preview-wrapper";
+
+ let img=document.createElement("img");
+ img.src=URL.createObjectURL(f);
+
+ let x=document.createElement("button");
+ x.textContent="✖";
+ x.onclick=()=>{
+  file.value="";
   preview.innerHTML="";
-  const f=file.files[0];
-  if(!f) return;
-  const w=document.createElement("div");
-  w.className="preview-wrapper";
-  const img=document.createElement("img");
-  img.src=URL.createObjectURL(f);
-  img.className="preview-img";
-  const x=document.createElement("button");
-  x.textContent="✖";
-  x.onclick=()=>{ file.value=""; preview.innerHTML=""; };
-  w.appendChild(img); w.appendChild(x);
-  preview.appendChild(w);
+ };
+
+ w.appendChild(img);
+ w.appendChild(x);
+ preview.appendChild(w);
 };
 
-// ===== DISABLE CHAT =====
-function disableChat(msg){
-  input.disabled=true;
-  sendBtn.disabled=true;
-  input.placeholder=msg;
-}
-
-// ===== SEND =====
+// SEND
 form.onsubmit=async(e)=>{
-  e.preventDefault();
-  const msg=input.value.trim();
-  const f=file.files[0];
-  if(!msg && !f) return;
+ e.preventDefault();
 
-  bubble(msg || "[image]", "user");
-  input.value=""; input.style.height="auto";
-  file.value=""; preview.innerHTML="";
+ let msg=input.value;
+ let f=file.files[0];
+ if(!msg && !f) return;
 
-  const thinking=document.createElement("div");
-  thinking.className="bot";
-  thinking.innerHTML="<p>NeuroMV is thinking...</p>";
-  chatBox.appendChild(thinking); scrollDown();
+ bubble(msg||"[file]","user");
 
-  try{
-    const fd=new FormData();
-    fd.append("message", msg);
-    fd.append("chat_id", current);
-    if(f) fd.append("file", f);
+ input.value="";
+ preview.innerHTML="";
+ file.value="";
 
-    const res=await fetch("/chat",{method:"POST", body:fd});
-    const data=await res.json();
-    thinking.remove();
+ let mode = "ai";
+ if(msg.match(/image|draw|anime|art/i)) mode="image";
+ if(msg.match(/what|who|when|where/i)) mode="search";
 
-    if(data.type==="limit"){
-      bubble(data.reply,"bot");
-      disableChat(data.reply);
-      return;
-    }
-    if(data.type==="text"){
-      bubble(data.reply,"bot");
-    }
-    if(data.type==="image"){
-      imageBubble(data.url);
-    }
-  }catch{
-    thinking.innerHTML="<p>❌ Network error</p>";
-  }
+ let thinking = showThinking(mode);
+
+ let fd=new FormData();
+ fd.append("message",msg);
+ fd.append("chat_id",current);
+ if(f) fd.append("file",f);
+
+ let r=await fetch("/chat",{method:"POST",body:fd});
+ let d=await r.json();
+
+ thinking.wrap.remove();
+
+ if(d.type==="image"){
+  let wrap=document.createElement("div");
+  wrap.className="bot";
+  let p=document.createElement("p");
+  p.textContent="✅ Image Created";
+  wrap.appendChild(p);
+
+  let img=new Image();
+  img.src=d.url;
+  wrap.appendChild(img);
+
+  chat.appendChild(wrap);
+ }
+
+ if(d.type==="text"||d.type==="search"){
+  bubble(d.reply,"bot");
+ }
+
+ if(d.type==="error"){
+  bubble(d.reply,"bot");
+ }
 };
 
-// ===== ENTER SEND =====
-input.addEventListener("keydown",e=>{
-  if(e.key==="Enter" && !e.shiftKey){
-    e.preventDefault();
-    form.dispatchEvent(new Event("submit"));
-  }
-});
-
-// ===== AUTO RESIZE =====
-input.addEventListener("input",()=>{
-  input.style.height="auto";
-  input.style.height=input.scrollHeight+"px";
-});
-
-// ===== INIT =====
-if(chats.length===0){ newBtn.click(); }
-else{ current=chats[0].id; }
-renderHistory(); renderChat();
-
-function scrollDown(){ chatBox.scrollTop=chatBox.scrollHeight; }
+// INIT
+newChat();
