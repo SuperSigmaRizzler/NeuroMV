@@ -1,55 +1,30 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>NeuroMV</title>
-<link rel="stylesheet" href="/static/style.css">
+  <meta charset="UTF-8">
+  <title>NeuroMV MAX</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-
 <div class="app">
+  <aside class="sidebar">
+    <button id="newChat">+ New Chat</button>
+    <div id="history"></div>
+  </aside>
 
-    <!-- MOBILE TOPBAR -->
-    <header class="topbar">
-        <button id="menuBtn">☰</button>
-        <h1>NeuroMV</h1>
-        <button id="newChatBtn">＋</button>
-    </header>
+  <main class="main">
+    <div id="chatBox" class="chat-box"></div>
 
-    <!-- SIDEBAR -->
-    <aside class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <h2>Chats</h2>
-        </div>
+    <div id="preview" class="preview"></div>
 
-        <button class="new-chat desktop-only">+ New Chat</button>
-
-        <div id="history" class="history"></div>
-    </aside>
-
-    <!-- OVERLAY -->
-    <div class="overlay" id="overlay"></div>
-
-    <!-- MAIN -->
-    <main class="main">
-
-        <div id="chat-box" class="chat-box"></div>
-
-        <div id="preview-box" class="preview-box"></div>
-
-        <form id="chat-form" class="input-area">
-            <label class="file-btn">
-                +
-                <input type="file" id="file-input" hidden>
-            </label>
-
-            <textarea id="message" placeholder="Message NeuroMV..."></textarea>
-
-            <button type="submit" class="send-btn">➤</button>
-        </form>
-
-    </main>
+    <form id="form" class="input-area">
+      <label class="file-btn">+
+        <input type="file" id="file" hidden>
+      </label>
+      <textarea id="input" placeholder="Message NeuroMV..." rows="1"></textarea>
+      <button id="send" type="submit">Send</button>
+    </form>
+  </main>
 </div>
 
 <script src="/static/script.js"></script>

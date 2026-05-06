@@ -1,179 +1,160 @@
-# app.py — NeuroMV GOD MODE Flask Backend
-
-import os
-import time
-import random
-import requests
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, render_template, request, jsonify, session
+import requests, time, base64
 
 app = Flask(__name__)
-app.secret_key = "neuromv-god-mode"
+app.secret_key = "neuromv-max-free"
 
-# ===============================
+# ======================
 # CONFIG
-# ===============================
-GROQ_KEYS = [k.strip() for k in os.getenv("GROQ_API_KEYS", "").split(",") if k.strip()]
-GROQ_MODEL = "llama3-8b-8192"
+# ======================
+DAILY_LIMIT = 50
+IMAGE_LIMIT = 10
+MEMORY_SIZE = 12
 
-# ===============================
-# MEMORY
-# ===============================
-def get_memory():
-    if "memory" not in session:
-        session["memory"] = []
-    return session["memory"]
+# ======================
+# UTILS
+# ======================
+def today_key():
+    return int(time.time() // 86400)
 
-def add_memory(role, content):
-    mem = get_memory()
-    mem.append({"role": role, "content": content})
-    if len(mem) > 12:
-        mem.pop(0)
-    session["memory"] = mem
+def ensure_counters():
+    if session.get("day") != today_key():
+        session["day"] = today_key()
+        session["count"] = 0
+        session["img"] = 0
 
-# ===============================
-# GROQ AI
-# ===============================
-def ask_groq(prompt):
-    if not GROQ_KEYS:
-        return None
-
-    keys = GROQ_KEYS.copy()
-    random.shuffle(keys)
-
-    for key in keys:
-        try:
-            res = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": GROQ_MODEL,
-                    "messages": get_memory() + [
-                        {"role": "user", "content": prompt}
-                    ]
-                },
-                timeout=15
-            )
-
-            if res.status_code == 200:
-                return res.json()["choices"][0]["message"]["content"]
-
-            if res.status_code == 429:
-                continue
-
-        except:
-            continue
-
-    return None
-
-# ===============================
-# POLLINATIONS TEXT FALLBACK
-# ===============================
-def ask_pollinations(prompt):
-    try:
-        url = f"https://text.pollinations.ai/{prompt.replace(' ', '%20')}"
-        r = requests.get(url, timeout=15)
-        if r.status_code == 200:
-            return r.text.strip()
-    except:
-        return None
-
-# ===============================
-# MAIN AI
-# ===============================
-def ask_ai(prompt):
-    reply = ask_groq(prompt)
-    if reply:
-        add_memory("user", prompt)
-        add_memory("assistant", reply)
-        return reply
-
-    reply = ask_pollinations(prompt)
-    if reply:
-        add_memory("user", prompt)
-        add_memory("assistant", reply)
-        return reply
-
-    return "⚠️ AI sedang sibuk / limit. Coba lagi sebentar."
-
-# ===============================
-# IMAGE GENERATOR
-# ===============================
-bad_words = [
-    "porn", "sex", "nude", "telanjang",
-    "bokep", "hentai", "nsfw"
-]
-
-def safe_prompt(prompt):
-    p = prompt.lower()
-    for w in bad_words:
-        if w in p:
-            return False
+def check_chat_limit():
+    ensure_counters()
+    if session.get("count", 0) >= DAILY_LIMIT:
+        return False
+    session["count"] = session.get("count", 0) + 1
     return True
 
+def check_image_limit():
+    ensure_counters()
+    if session.get("img", 0) >= IMAGE_LIMIT:
+        return False
+    session["img"] = session.get("img", 0) + 1
+    return True
+
+# ======================
+# MEMORY PER CHAT (by client chat_id)
+# ======================
+def get_memory(chat_id):
+    if "mem" not in session:
+        session["mem"] = {}
+    if chat_id not in session["mem"]:
+        session["mem"][chat_id] = []
+    return session["mem"][chat_id]
+
+def push_memory(chat_id, role, text):
+    mem = get_memory(chat_id)
+    mem.append({"role": role, "text": text})
+    if len(mem) > MEMORY_SIZE:
+        mem.pop(0)
+    session["mem"][chat_id] = mem
+
+def build_prompt(chat_id, user_msg):
+    mem = get_memory(chat_id)
+    context = ""
+    for m in mem:
+        context += f"{m['role']}: {m['text']}\n"
+    context += f"user: {user_msg}\nbot:"
+    return context
+
+# ======================
+# AI ROUTER (FREE)
+# ======================
+def ai_pollinations(prompt):
+    try:
+        r = requests.get(f"https://text.pollinations.ai/{prompt}", timeout=10)
+        if r.status_code == 200 and r.text.strip():
+            return r.text.strip()
+    except:
+        pass
+    return None
+
+def ai_fallback(msg):
+    # simple offline fallback
+    if "halo" in msg.lower():
+        return "Halo! Aku NeuroMV. Ada yang bisa dibantu?"
+    return "⚠️ AI lagi sibuk / limit. Coba lagi beberapa saat."
+
+def ask_ai(chat_id, msg):
+    prompt = build_prompt(chat_id, msg)
+    res = ai_pollinations(prompt)
+    if res:
+        return res
+    return ai_fallback(msg)
+
+# ======================
+# IMAGE (Pollinations)
+# ======================
+BANNED = ["porn","sex","nude","bokep","nsfw"]
+
 def generate_image(prompt):
-    if not safe_prompt(prompt):
-        return None
+    low = prompt.lower()
+    if any(b in low for b in BANNED):
+        return {"error": "❌ Konten tidak diperbolehkan."}
+    if not check_image_limit():
+        return {"error": "⚠️ Limit generate image tercapai (10x/hari)."}
+    enhanced = f"{prompt}, high quality, detailed, 4k, anime style"
+    url = "https://image.pollinations.ai/prompt/" + enhanced.replace(" ", "%20") + "?width=512&height=512"
+    return {"url": url}
 
-    q = prompt.replace(" ", "%20")
-    return f"https://image.pollinations.ai/prompt/{q}?width=768&height=768&model=flux"
+# ======================
+# VISION (basic caption via Pollinations)
+# ======================
+def image_to_caption(img_bytes):
+    # Pollinations juga bisa caption via prompt
+    # kirim base64 (simple trick)
+    try:
+        b64 = base64.b64encode(img_bytes).decode("utf-8")
+        prompt = f"describe this image briefly: data:image/jpeg;base64,{b64}"
+        r = requests.get(f"https://text.pollinations.ai/{prompt}", timeout=12)
+        if r.status_code == 200 and r.text.strip():
+            return r.text.strip()
+    except:
+        pass
+    return "⚠️ Vision gagal membaca gambar."
 
-# ===============================
+# ======================
 # ROUTES
-# ===============================
+# ======================
 @app.route("/")
-def home():
+def index():
     return render_template("index.html")
 
 @app.route("/chat", methods=["POST"])
 def chat():
+    chat_id = request.form.get("chat_id", "default")
     msg = request.form.get("message", "").strip()
-    file = request.files.get("file")
 
-    # IMAGE GENERATION
-    trigger = ["gambar", "image", "foto", "anime", "draw", "generate"]
+    if not check_chat_limit():
+        return jsonify({"type":"limit","reply":"You've reached your daily limit for today, come back tomorrow!"})
 
-    if any(t in msg.lower() for t in trigger):
-        url = generate_image(msg)
+    # file?
+    if "file" in request.files:
+        f = request.files["file"]
+        if f and f.filename:
+            caption = image_to_caption(f.read())
+            push_memory(chat_id, "user", "[image]")
+            push_memory(chat_id, "bot", caption)
+            return jsonify({"type":"text","reply": caption})
 
-        if not url:
-            return jsonify({
-                "type": "text",
-                "reply": "❌ Prompt gambar tidak diperbolehkan."
-            })
+    # image intent?
+    if any(x in msg.lower() for x in ["gambar","image","foto","anime","draw"]):
+        out = generate_image(msg)
+        if "error" in out:
+            return jsonify({"type":"text","reply": out["error"]})
+        return jsonify({"type":"image","url": out["url"]})
 
-        return jsonify({
-            "type": "image",
-            "url": url
-        })
+    # text AI
+    reply = ask_ai(chat_id, msg)
+    push_memory(chat_id, "user", msg)
+    push_memory(chat_id, "bot", reply)
 
-    # VISION BASIC
-    if file:
-        return jsonify({
-            "type": "text",
-            "reply": "📷 Gambar diterima. Vision mode akan ditingkatkan lagi nanti."
-        })
+    return jsonify({"type":"text","reply": reply})
 
-    # TEXT AI
-    reply = ask_ai(msg)
-
-    return jsonify({
-        "type": "text",
-        "reply": reply
-    })
-
-# ===============================
-# RESET MEMORY
-# ===============================
-@app.route("/reset")
-def reset():
-    session.clear()
-    return "reset ok"
-
-# ===============================
-# RUN
-# ===============================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(debug=True)
