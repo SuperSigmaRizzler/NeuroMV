@@ -1,14 +1,14 @@
 from flask import Flask, render_template, request, jsonify, session
-import requests, time, hashlib, os
+import requests, time, hashlib
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "neuromv-key")
+app.secret_key = "neuromv-secure"
 
 DAILY_LIMIT = 50
 IMAGE_LIMIT = 10
 MEMORY_SIZE = 12
 
-# ================= PIN =================
+# ===== PIN =====
 def hash_pin(pin):
     return hashlib.sha256(pin.encode()).hexdigest()
 
@@ -18,7 +18,7 @@ def set_pin(pin):
 def verify_pin(pin):
     return session.get("pin") == hash_pin(pin)
 
-# ================= MEMORY =================
+# ===== MEMORY =====
 def get_mem(chat_id):
     if "mem" not in session:
         session["mem"] = {}
@@ -27,58 +27,53 @@ def get_mem(chat_id):
     return session["mem"][chat_id]
 
 def push(chat_id, role, text):
-    mem = get_mem(chat_id)
-    mem.append({"role": role, "text": text})
-    if len(mem) > MEMORY_SIZE:
-        mem.pop(0)
-    session["mem"][chat_id] = mem
+    m = get_mem(chat_id)
+    m.append({"role": role, "text": text})
+    if len(m) > MEMORY_SIZE:
+        m.pop(0)
+    session["mem"][chat_id] = m
 
 def build_prompt(chat_id, msg):
     mem = get_mem(chat_id)
-    context = "You are NeuroMV created by Marvell Jonathan Siau.\n"
+    ctx = "You are NeuroMV created by Marvell Jonathan Siau.\n"
     for m in mem:
-        context += f"{m['role']}: {m['text']}\n"
-    context += f"user: {msg}\nassistant:"
-    return context
+        ctx += f"{m['role']}: {m['text']}\n"
+    ctx += f"user: {msg}\nassistant:"
+    return ctx
 
-# ================= AI =================
+# ===== AI =====
 def ai(prompt):
     try:
-        r = requests.get(
-            "https://text.pollinations.ai/",
-            params={"prompt": prompt},
-            timeout=12
-        )
-        if r.text.strip():
-            return r.text.strip()
+        r = requests.get("https://text.pollinations.ai/", params={"prompt": prompt}, timeout=10)
+        if r.text:
+            return r.text
     except:
         pass
-    return "⚠️ NeuroMV is temporarily unavailable."
+    return "NeuroMV is temporarily unavailable."
 
-# ================= IMAGE =================
-def image(prompt):
-    bad = ["sex","porn","nude","nsfw"]
+# ===== IMAGE =====
+def gen_image(prompt):
+    bad = ["sex","nsfw","porn","nude"]
     if any(b in prompt.lower() for b in bad):
-        return {"error":"Content blocked by safety system."}
-
+        return None
     url = "https://image.pollinations.ai/prompt/" + prompt.replace(" ","%20")
-    return {"url": url}
+    return url
 
-# ================= ROUTES =================
 @app.route("/")
 def home():
     return render_template("index.html")
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    chat_id = request.form.get("chat_id","default")
+    chat_id = request.form.get("chat_id")
     msg = request.form.get("message","")
 
+    # image mode
     if any(x in msg.lower() for x in ["image","draw","art"]):
-        out = image(msg)
-        if "error" in out:
-            return jsonify({"type":"text","reply":out["error"]})
-        return jsonify({"type":"image","url":out["url"]})
+        url = gen_image(msg)
+        if url:
+            return jsonify({"type":"image","url":url})
+        return jsonify({"type":"error","reply":"Content blocked."})
 
     reply = ai(build_prompt(chat_id,msg))
 
@@ -87,20 +82,18 @@ def chat():
 
     return jsonify({"type":"text","reply":reply})
 
-# ================= PIN =================
-@app.route("/set_pin", methods=["POST"])
-def setpin():
-    set_pin(request.json.get("pin"))
-    return jsonify({"ok":True})
-
+# ===== PIN =====
 @app.route("/verify_pin", methods=["POST"])
-def checkpin():
+def vp():
     pin = request.json.get("pin")
-    return jsonify({"ok": verify_pin(pin)})
+    if verify_pin(pin):
+        session["unlocked"] = True
+        return jsonify({"ok":True})
+    return jsonify({"ok":False})
 
 @app.route("/check_unlock")
-def unlock():
-    return jsonify({"unlocked": session.get("unlocked", False)})
+def cu():
+    return jsonify({"unlocked":session.get("unlocked",False)})
 
 if __name__ == "__main__":
     app.run(debug=True)
