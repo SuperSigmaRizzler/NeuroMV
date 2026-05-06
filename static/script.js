@@ -1,12 +1,12 @@
-// ===============================
-// NEUROMV FINAL SCRIPT.JS FIXED
-// New Chat benar-benar reset layar
-// ===============================
+// ==============================
+// NeuroMV FINAL script.js
+// Full Feature Stable Edition
+// ==============================
 
 // ---------- SAFE STORAGE ----------
 function loadChats() {
     try {
-        const data = JSON.parse(localStorage.getItem("chats"));
+        const data = JSON.parse(localStorage.getItem("neuromv_chats"));
         return Array.isArray(data) ? data : [];
     } catch {
         return [];
@@ -16,7 +16,7 @@ function loadChats() {
 let chats = loadChats();
 let currentChatId = null;
 
-// ---------- ELEMENT ----------
+// ---------- ELEMENTS ----------
 const form = document.getElementById("chat-form");
 const input = document.getElementById("message");
 const chatBox = document.getElementById("chat-box");
@@ -27,36 +27,26 @@ const newChatBtn = document.querySelector(".new-chat");
 
 // ---------- SAVE ----------
 function saveChats() {
-    localStorage.setItem("chats", JSON.stringify(chats));
+    localStorage.setItem("neuromv_chats", JSON.stringify(chats));
 }
 
-// ---------- CREATE NEW CHAT ----------
-function createNewChat() {
+// ---------- NEW CHAT ----------
+function createChat() {
     const id = Date.now();
 
-    const newChat = {
-        id: id,
+    chats.unshift({
+        id,
         title: "New Chat",
         messages: []
-    };
+    });
 
-    chats.unshift(newChat);
     currentChatId = id;
-
     saveChats();
     renderHistory();
-
-    // 🔥 RESET TOTAL UI
-    chatBox.innerHTML = "";
-    input.value = "";
-    previewBox.innerHTML = "";
-    fileInput.value = "";
-
-    input.focus();
+    renderChat();
 }
 
-// tombol new chat
-newChatBtn.onclick = createNewChat;
+newChatBtn.onclick = createChat;
 
 // ---------- HISTORY ----------
 function renderHistory() {
@@ -74,8 +64,8 @@ function renderHistory() {
         title.textContent = chat.title;
 
         const del = document.createElement("button");
-        del.textContent = "✖";
         del.className = "delete-chat";
+        del.textContent = "✖";
 
         del.onclick = (e) => {
             e.stopPropagation();
@@ -103,6 +93,14 @@ function renderHistory() {
     });
 }
 
+// ---------- TITLE ----------
+function generateTitle(text) {
+    text = text.trim();
+
+    if (text.length <= 25) return text;
+    return text.slice(0, 25) + "...";
+}
+
 // ---------- RENDER CHAT ----------
 function renderChat() {
     chatBox.innerHTML = "";
@@ -111,115 +109,161 @@ function renderChat() {
     if (!chat) return;
 
     chat.messages.forEach(msg => {
-        addMessage(msg.text, msg.role, null, false);
+        if (msg.type === "image") {
+            addImage(msg.url, msg.role, false);
+        } else {
+            addMessage(msg.text, msg.role, false);
+        }
     });
 
     scrollBottom();
 }
 
-// ---------- TITLE ----------
-function generateTitle(text) {
-    if (!text) return "New Chat";
+// ---------- SAVE MESSAGE ----------
+function pushMessage(role, type, payload) {
+    const chat = chats.find(c => c.id === currentChatId);
+    if (!chat) return;
 
-    text = text.trim();
-
-    if (text.length > 24) {
-        return text.slice(0, 24) + "...";
+    if (type === "text") {
+        chat.messages.push({
+            role,
+            type,
+            text: payload
+        });
     }
 
-    return text;
+    if (type === "image") {
+        chat.messages.push({
+            role,
+            type,
+            url: payload
+        });
+    }
+
+    if (chat.messages.length === 1 && type === "text") {
+        chat.title = generateTitle(payload);
+    }
+
+    saveChats();
+    renderHistory();
 }
 
-// ---------- ADD MESSAGE ----------
-function addMessage(text, role, file = null, save = true) {
-    const div = document.createElement("div");
-    div.className = role;
+// ---------- TEXT BUBBLE ----------
+function addMessage(text, role = "bot", save = true) {
+    const wrap = document.createElement("div");
+    wrap.className = role;
 
-    if (text) {
-        const p = document.createElement("p");
-        p.textContent = text;
-        div.appendChild(p);
+    const p = document.createElement("p");
+    p.textContent = text;
+
+    wrap.appendChild(p);
+    chatBox.appendChild(wrap);
+
+    if (save) pushMessage(role, "text", text);
+
+    scrollBottom();
+}
+
+// ---------- TYPING EFFECT ----------
+async function typeMessage(text) {
+    const wrap = document.createElement("div");
+    wrap.className = "bot";
+
+    const p = document.createElement("p");
+    wrap.appendChild(p);
+
+    chatBox.appendChild(wrap);
+
+    let i = 0;
+
+    const speed = 12;
+
+    while (i < text.length) {
+        p.textContent += text[i];
+        i++;
+        scrollBottom();
+        await new Promise(r => setTimeout(r, speed));
     }
 
-    if (file) {
-        const img = document.createElement("img");
-        img.src = URL.createObjectURL(file);
-        img.className = "chat-image";
-        div.appendChild(img);
-    }
+    pushMessage("bot", "text", text);
+}
 
-    chatBox.appendChild(div);
+// ---------- IMAGE ----------
+function addImage(url, role = "bot", save = true) {
+    const wrap = document.createElement("div");
+    wrap.className = role;
 
-    if (save) {
-        const chat = chats.find(c => c.id === currentChatId);
-        if (!chat) return;
+    const img = document.createElement("img");
+    img.src = url;
+    img.className = "chat-image";
 
-        chat.messages.push({
-            role: role,
-            text: text
-        });
+    wrap.appendChild(img);
+    chatBox.appendChild(wrap);
 
-        if (chat.messages.length === 1) {
-            chat.title = generateTitle(text);
-        }
-
-        saveChats();
-        renderHistory();
-    }
+    if (save) pushMessage(role, "image", url);
 
     scrollBottom();
 }
 
 // ---------- PREVIEW FILE ----------
-fileInput?.addEventListener("change", () => {
-    previewBox.innerHTML = "";
-
-    const file = fileInput.files[0];
-    if (!file) return;
-
-    const wrap = document.createElement("div");
-    wrap.className = "preview-wrapper";
-
-    const img = document.createElement("img");
-    img.src = URL.createObjectURL(file);
-    img.className = "preview-image";
-
-    const remove = document.createElement("button");
-    remove.textContent = "✖";
-    remove.className = "remove-btn";
-
-    remove.onclick = () => {
-        fileInput.value = "";
+if (fileInput) {
+    fileInput.onchange = () => {
         previewBox.innerHTML = "";
-    };
 
-    wrap.appendChild(img);
-    wrap.appendChild(remove);
-    previewBox.appendChild(wrap);
-});
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const wrap = document.createElement("div");
+        wrap.className = "preview-wrapper";
+
+        const img = document.createElement("img");
+        img.src = URL.createObjectURL(file);
+        img.className = "preview-image";
+
+        const remove = document.createElement("button");
+        remove.className = "remove-btn";
+        remove.textContent = "✖";
+
+        remove.onclick = () => {
+            fileInput.value = "";
+            previewBox.innerHTML = "";
+        };
+
+        wrap.appendChild(img);
+        wrap.appendChild(remove);
+        previewBox.appendChild(wrap);
+    };
+}
 
 // ---------- SEND ----------
 form.addEventListener("submit", async (e) => {
     e.preventDefault();
 
     const msg = input.value.trim();
-    const file = fileInput.files[0];
+    const file = fileInput?.files?.[0];
 
     if (!msg && !file) return;
 
-    addMessage(msg, "user", file);
+    addMessage(msg, "user");
 
     input.value = "";
-    previewBox.innerHTML = "";
-    fileInput.value = "";
+    input.style.height = "auto";
+
+    if (fileInput) fileInput.value = "";
+    if (previewBox) previewBox.innerHTML = "";
+
+    const thinking = document.createElement("div");
+    thinking.className = "bot";
+    thinking.id = "thinking-box";
+    thinking.innerHTML = `<p>NeuroMV is thinking...</p>`;
+    chatBox.appendChild(thinking);
+
+    scrollBottom();
 
     try {
         const fd = new FormData();
         fd.append("message", msg);
-
-        if (file) {
-            fd.append("file", file);
-        }
+        if (file) fd.append("file", file);
 
         const res = await fetch("/chat", {
             method: "POST",
@@ -228,25 +272,20 @@ form.addEventListener("submit", async (e) => {
 
         const data = await res.json();
 
-        if (data.type === "image") {
-            const div = document.createElement("div");
-            div.className = "bot";
+        document.getElementById("thinking-box")?.remove();
 
-            const img = document.createElement("img");
-            img.src = data.url;
-            img.className = "chat-image";
-
-            div.appendChild(img);
-            chatBox.appendChild(div);
-        } else {
-            addMessage(data.reply || "No response", "bot");
+        if (data.type === "text") {
+            await typeMessage(data.reply);
         }
 
-    } catch {
-        addMessage("❌ Server Error", "bot");
-    }
+        if (data.type === "image") {
+            addImage(data.url, "bot");
+        }
 
-    scrollBottom();
+    } catch (err) {
+        document.getElementById("thinking-box")?.remove();
+        addMessage("❌ Gagal connect ke server", "bot");
+    }
 });
 
 // ---------- ENTER SEND ----------
@@ -257,6 +296,12 @@ input.addEventListener("keydown", (e) => {
     }
 });
 
+// ---------- AUTO RESIZE ----------
+input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = input.scrollHeight + "px";
+});
+
 // ---------- SCROLL ----------
 function scrollBottom() {
     chatBox.scrollTop = chatBox.scrollHeight;
@@ -264,7 +309,7 @@ function scrollBottom() {
 
 // ---------- INIT ----------
 if (chats.length === 0) {
-    createNewChat();
+    createChat();
 } else {
     currentChatId = chats[0].id;
 }
