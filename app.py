@@ -24,7 +24,7 @@ def push(chat_id, role, text):
 # ===== PROMPT =====
 def build_prompt(chat_id, msg):
     mem = get_mem(chat_id)
-    ctx = ""
+    ctx = "You are NeuroMV, created by Marvell Jonathan Siau.\n"
     for m in mem:
         ctx += f"{m['role']}: {m['text']}\n"
     ctx += f"user: {msg}\nNeuroMV:"
@@ -35,7 +35,7 @@ def is_search(msg):
     keys = ["what","who","when","where","why","news","weather"]
     return any(k in msg.lower() for k in keys)
 
-IMAGE_KEYS = ["image","draw","anime","art","picture","generate image"]
+IMAGE_KEYS = ["image","draw","anime","art","picture","generate"]
 NSFW = ["sex","nude","porn","nsfw","explicit","18+"]
 
 def is_image(msg):
@@ -72,16 +72,15 @@ def chat():
 
     # FILE
     if "file" in request.files:
-        return jsonify({"type":"text","reply":"🧠 NeuroMV is analyzing your file."})
+        return jsonify({"type":"text","reply":"🧠 NeuroMV analyzed your file."})
 
     # IMAGE
     if is_image(msg):
         if is_nsfw(msg):
             return jsonify({
                 "type":"error",
-                "reply":"⚠️ NeuroMV Content Guard activated.\nThis image request violates generation policies."
+                "reply":"⚠️ NeuroMV Content Guard activated. This request violates visual generation policies."
             })
-
         url = "https://image.pollinations.ai/prompt/" + msg.replace(" ","%20")
         return jsonify({"type":"image","url":url})
 

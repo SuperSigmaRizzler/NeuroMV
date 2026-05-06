@@ -1,35 +1,105 @@
-body{margin:0;font-family:sans-serif;background:#0f172a;color:#fff}
+*{box-sizing:border-box;font-family:Inter,system-ui}
+body{margin:0;background:#0f172a;color:#fff}
+
 .app{display:flex;height:100vh}
 
-.sidebar{width:250px;background:#020617;padding:10px;overflow:auto}
-.main{flex:1;display:flex;flex-direction:column}
-
-#chat{flex:1;overflow:auto;padding:10px}
-
-.user{text-align:right}
-.bot{text-align:left}
-
-.user p{background:#2563eb;padding:10px;border-radius:10px}
-.bot p{background:#1e293b;padding:10px;border-radius:10px}
-
-.history-item{
- display:flex;justify-content:space-between;
- padding:6px;margin:4px 0;background:#111;border-radius:6px
+/* SIDEBAR */
+.sidebar{
+  width:260px;
+  background:#020617;
+  padding:12px;
 }
 
+.new-chat{
+  width:100%;
+  padding:10px;
+  border:none;
+  border-radius:8px;
+  background:#2563eb;
+  color:#fff;
+  margin-bottom:12px;
+}
+
+.history-item{
+  display:flex;
+  justify-content:space-between;
+  padding:8px;
+  margin-top:6px;
+  background:#111827;
+  border-radius:8px;
+  cursor:pointer;
+}
+
+/* MAIN */
+.main{flex:1;display:flex;flex-direction:column}
+
+.chat{
+  flex:1;
+  overflow:auto;
+  padding:20px;
+  display:flex;
+  flex-direction:column;
+}
+
+/* BUBBLE */
+.user,.bot{display:flex;margin:6px 0}
+.user{justify-content:flex-end}
+.bot{justify-content:flex-start}
+
+.user p{
+  background:#2563eb;
+  padding:10px;
+  border-radius:12px;
+  max-width:60%;
+}
+.bot p{
+  background:#1e293b;
+  padding:10px;
+  border-radius:12px;
+  max-width:60%;
+}
+
+.bot img{
+  max-width:260px;
+  border-radius:10px;
+  margin-top:8px;
+}
+
+/* INPUT */
+.input-area{
+  display:flex;
+  gap:10px;
+  padding:12px;
+  background:#020617;
+}
+
+textarea{
+  flex:1;
+  border:none;
+  outline:none;
+  background:#111827;
+  color:#fff;
+  padding:10px;
+  border-radius:10px;
+}
+
+button{
+  background:#2563eb;
+  border:none;
+  padding:10px;
+  border-radius:10px;
+  color:#fff;
+}
+
+/* PREVIEW */
 .preview-wrapper{position:relative}
 .preview-wrapper img{max-width:80px;border-radius:8px}
 .preview-wrapper button{
- position:absolute;top:-5px;right:-5px;
- background:red;color:#fff;border:none;border-radius:50%
+  position:absolute;top:-5px;right:-5px;
+  background:red;color:#fff;border:none;border-radius:50%;
 }
 
-.undo{
- position:fixed;bottom:20px;left:50%;
- transform:translateX(-50%);
- background:#111;padding:10px;border-radius:8px
-}
-
+/* MOBILE */
 .menu{display:none}
 @media(max-width:768px){
 .sidebar{position:absolute;left:-100%}

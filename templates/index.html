@@ -11,7 +11,7 @@
 <div class="app">
 
 <aside class="sidebar">
-<button onclick="newChat()">+ New Chat</button>
+<button class="new-chat" onclick="newChat()">+ New Chat</button>
 
 <h3>Chats</h3>
 <div id="history"></div>
@@ -21,14 +21,16 @@
 </aside>
 
 <main class="main">
-<div id="chat"></div>
-<div id="preview"></div>
+<div id="chat" class="chat"></div>
+<div id="preview" class="preview"></div>
 
-<form id="form">
-<label class="file">+</label>
+<form id="form" class="input-area">
+<label class="file-btn">+
 <input type="file" id="file" hidden>
+</label>
+
 <textarea id="input" placeholder="Message NeuroMV..."></textarea>
-<button>Send</button>
+<button type="submit">Send</button>
 </form>
 </main>
 
