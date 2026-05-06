@@ -1,10 +1,20 @@
 from flask import Flask, render_template, request, jsonify, session
-import requests, os
+import requests, os, hashlib
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "neuromv")
 
 MEMORY_SIZE = 12
+
+# ===== PIN SYSTEM =====
+def hash_pin(pin):
+    return hashlib.sha256(pin.encode()).hexdigest()
+
+def set_pin(pin):
+    session["pin"] = hash_pin(pin)
+
+def verify_pin(pin):
+    return session.get("pin") == hash_pin(pin)
 
 # ===== MEMORY =====
 def get_mem(chat_id):
@@ -30,35 +40,15 @@ def build_prompt(chat_id, msg):
     ctx += f"user: {msg}\nNeuroMV:"
     return ctx
 
-# ===== DETECT =====
-def is_search(msg):
-    keys = ["what","who","when","where","why","news","weather"]
-    return any(k in msg.lower() for k in keys)
-
-IMAGE_KEYS = ["image","draw","anime","art","picture","generate"]
-NSFW = ["sex","nude","porn","nsfw","explicit","18+"]
-
-def is_image(msg):
-    return any(k in msg.lower() for k in IMAGE_KEYS)
-
-def is_nsfw(msg):
-    return any(k in msg.lower() for k in NSFW)
-
-# ===== AI =====
+# ===== AI (SAFE) =====
 def ai(prompt):
     try:
-        r = requests.get(f"https://text.pollinations.ai/{prompt}", timeout=10)
-        return r.text
+        r = requests.get("https://text.pollinations.ai/", params={"prompt":prompt}, timeout=10)
+        if r.text.strip():
+            return r.text.strip()
     except:
-        return "⚠️ NeuroMV encountered an error."
-
-def search(msg):
-    try:
-        r = requests.get(f"https://api.duckduckgo.com/?q={msg}&format=json")
-        data = r.json()
-        return data.get("AbstractText") or "No results found."
-    except:
-        return "⚠️ Search failed."
+        pass
+    return "⚠️ NeuroMV encountered an error. Please try again later / contact the owner of this app"
 
 # ===== ROUTES =====
 @app.route("/")
@@ -68,44 +58,32 @@ def index():
 @app.route("/chat", methods=["POST"])
 def chat():
     chat_id = request.form.get("chat_id")
-    msg = request.form.get("message", "")
+    msg = request.form.get("message","")
 
-    # FILE
-    if "file" in request.files:
-        return jsonify({"type":"text","reply":"🧠 NeuroMV analyzed your file."})
-
-    # IMAGE
-    if is_image(msg):
-        if is_nsfw(msg):
-            return jsonify({
-                "type":"error",
-                "reply":"⚠️ NeuroMV Content Guard activated. This request violates visual generation policies."
-            })
-        url = "https://image.pollinations.ai/prompt/" + msg.replace(" ","%20")
-        return jsonify({"type":"image","url":url})
-
-    # SEARCH
-    if is_search(msg):
-        res = search(msg)
-        push(chat_id,"user",msg)
-        push(chat_id,"bot",res)
-        return jsonify({"type":"search","reply":res})
-
-    # AI
-    prompt = build_prompt(chat_id,msg)
-    res = ai(prompt)
-
+    res = ai(build_prompt(chat_id,msg))
     push(chat_id,"user",msg)
     push(chat_id,"bot",res)
 
     return jsonify({"type":"text","reply":res})
 
-@app.route("/clear_chat", methods=["POST"])
-def clear_chat():
-    chat_id = request.json.get("chat_id")
-    if "mem" in session and chat_id in session["mem"]:
-        session["mem"].pop(chat_id)
+# ===== PIN ROUTES =====
+@app.route("/set_pin", methods=["POST"])
+def setpin():
+    pin = request.json.get("pin")
+    set_pin(pin)
     return jsonify({"ok":True})
+
+@app.route("/verify_pin", methods=["POST"])
+def verifypin():
+    pin = request.json.get("pin")
+    if verify_pin(pin):
+        session["unlocked"] = True
+        return jsonify({"ok":True})
+    return jsonify({"ok":False})
+
+@app.route("/check_unlock")
+def check_unlock():
+    return jsonify({"unlocked": session.get("unlocked", False)})
 
 if __name__ == "__main__":
     app.run(debug=True)

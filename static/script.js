@@ -1,9 +1,11 @@
-let chats=[], archive=[], current=null, lastDeleted=null;
+// ===== STATE =====
+let chats=[], privates=[], current=null, lastDeleted=null;
 let isLoading=false;
 
+// ===== ELEMENT =====
 const chat=document.getElementById("chat");
 const history=document.getElementById("history");
-const archiveBox=document.getElementById("archive");
+const privateBox=document.getElementById("private");
 const form=document.getElementById("form");
 const input=document.getElementById("input");
 const file=document.getElementById("file");
@@ -26,7 +28,7 @@ function newChat(){
 // ===== RENDER =====
 function renderAll(){
  renderHistory();
- renderArchive();
+ renderPrivate();
  renderChat();
 }
 
@@ -37,7 +39,7 @@ function renderHistory(){
   d.className="history-item";
   d.innerHTML=`${c.title}
   <div>
-   <button onclick="archiveChat('${c.id}')">📦</button>
+   <button onclick="toPrivate('${c.id}')">🔒</button>
    <button onclick="deleteChat('${c.id}')">✖</button>
   </div>`;
   d.onclick=()=>{current=c.id;renderChat();}
@@ -45,14 +47,14 @@ function renderHistory(){
  });
 }
 
-function renderArchive(){
- archiveBox.innerHTML="";
- archive.forEach(c=>{
+function renderPrivate(){
+ privateBox.innerHTML="";
+ privates.forEach(c=>{
   let d=document.createElement("div");
   d.className="history-item";
   d.innerHTML=`${c.title}
-  <button onclick="restoreChat('${c.id}')">↩</button>`;
-  archiveBox.appendChild(d);
+  <button onclick="restore('${c.id}')">↩</button>`;
+  privateBox.appendChild(d);
  });
 }
 
@@ -63,7 +65,7 @@ function renderChat(){
  c.msg.forEach(m=>bubble(m.t,m.r,false));
 }
 
-// ===== TYPE =====
+// ===== TYPE EFFECT =====
 function typeText(el,text){
  let i=0;
  function type(){
@@ -141,6 +143,54 @@ file.onchange=()=>{
  w.appendChild(x);
  preview.appendChild(w);
 };
+
+// ===== DELETE =====
+function deleteChat(id){
+ let c=chats.find(x=>x.id===id);
+ lastDeleted=c;
+ chats=chats.filter(x=>x.id!==id);
+ current=chats[0]?.id;
+ renderAll();
+ showUndo();
+}
+
+function showUndo(){
+ let u=document.createElement("div");
+ u.className="undo";
+ u.innerHTML=`Deleted <button onclick="undo()">Undo</button>`;
+ document.body.appendChild(u);
+ setTimeout(()=>u.remove(),5000);
+}
+
+function undo(){
+ if(!lastDeleted) return;
+ chats.unshift(lastDeleted);
+ current=lastDeleted.id;
+ renderAll();
+}
+
+// ===== PRIVATE =====
+async function toPrivate(id){
+ let r=await fetch("/check_unlock");
+ let d=await r.json();
+
+ if(!d.unlocked){
+  document.getElementById("pinModal").classList.remove("hidden");
+  return;
+ }
+
+ let c=chats.find(x=>x.id===id);
+ privates.push(c);
+ chats=chats.filter(x=>x.id!==id);
+ renderAll();
+}
+
+function restore(id){
+ let c=privates.find(x=>x.id===id);
+ chats.unshift(c);
+ privates=privates.filter(x=>x.id!==id);
+ renderAll();
+}
 
 // ===== SEND =====
 form.onsubmit=async(e)=>{

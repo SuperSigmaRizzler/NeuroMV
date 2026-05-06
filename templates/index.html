@@ -6,31 +6,33 @@
 </head>
 <body>
 
-<button class="menu" onclick="toggleMenu()">☰</button>
+<div id="pinModal" class="modal hidden">
+  <div class="modal-box">
+    <h3>Enter PIN</h3>
+    <input id="pinInput" type="password">
+    <button onclick="submitPin()">Unlock</button>
+  </div>
+</div>
 
 <div class="app">
 
 <aside class="sidebar">
-<button class="new-chat" onclick="newChat()">+ New Chat</button>
+<button onclick="newChat()">+ New Chat</button>
 
 <h3>Chats</h3>
 <div id="history"></div>
 
-<h3>Archive</h3>
-<div id="archive"></div>
+<h3>Private 🔒</h3>
+<div id="private"></div>
+
 </aside>
 
 <main class="main">
-<div id="chat" class="chat"></div>
-<div id="preview" class="preview"></div>
+<div id="chat"></div>
 
-<form id="form" class="input-area">
-<label class="file-btn">+
-<input type="file" id="file" hidden>
-</label>
-
-<textarea id="input" placeholder="Message NeuroMV..."></textarea>
-<button type="submit">Send</button>
+<form id="form">
+<textarea id="input"></textarea>
+<button>Send</button>
 </form>
 </main>
 
