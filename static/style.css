@@ -9,13 +9,14 @@ body{
   color:#fff;
 }
 
-/* LAYOUT */
+/* ===== LAYOUT ===== */
 .app{
   display:flex;
   height:100vh;
+  overflow:hidden;
 }
 
-/* SIDEBAR */
+/* ===== SIDEBAR ===== */
 .sidebar{
   width:260px;
   background:#020617;
@@ -67,19 +68,20 @@ body{
   cursor:pointer;
   color:#9ca3af;
 }
+
 .history-item button:hover{
   color:#ef4444;
 }
 
-/* MAIN */
+/* ===== MAIN ===== */
 .main{
   flex:1;
   display:flex;
   flex-direction:column;
-  position:relative;
+  height:100vh;
 }
 
-/* CHAT */
+/* ===== CHAT AREA ===== */
 .chat{
   flex:1;
   overflow-y:auto;
@@ -90,7 +92,15 @@ body{
   scroll-behavior:smooth;
 }
 
-/* MESSAGE */
+/* EMPTY CHAT TEXT */
+.chat:empty::before{
+  content:"Start a conversation with NeuroMV...";
+  opacity:0.3;
+  text-align:center;
+  margin-top:40px;
+}
+
+/* ===== MESSAGE ===== */
 .user,.bot{
   display:flex;
 }
@@ -121,7 +131,7 @@ body{
   margin-top:6px;
 }
 
-/* INPUT */
+/* ===== INPUT ===== */
 .input-area{
   display:flex;
   gap:10px;
@@ -129,8 +139,12 @@ body{
   background:#020617;
   border-top:1px solid #1f2937;
   align-items:flex-end;
+
+  position:sticky;
+  bottom:0;
 }
 
+/* TEXTAREA */
 textarea{
   flex:1;
   resize:none;
@@ -143,6 +157,7 @@ textarea{
   max-height:120px;
 }
 
+/* BUTTON */
 button{
   border:none;
   padding:10px 16px;
@@ -152,6 +167,7 @@ button{
   cursor:pointer;
   transition:0.2s;
 }
+
 button:hover{opacity:0.9}
 button:disabled{opacity:0.4;cursor:not-allowed}
 
@@ -163,7 +179,7 @@ button:disabled{opacity:0.4;cursor:not-allowed}
   cursor:pointer;
 }
 
-/* PREVIEW */
+/* ===== PREVIEW ===== */
 .preview{
   padding:0 12px;
 }
@@ -191,7 +207,7 @@ button:disabled{opacity:0.4;cursor:not-allowed}
   cursor:pointer;
 }
 
-/* UNDO */
+/* ===== UNDO ===== */
 .undo{
   position:fixed;
   bottom:20px;
@@ -203,7 +219,7 @@ button:disabled{opacity:0.4;cursor:not-allowed}
   box-shadow:0 10px 30px rgba(0,0,0,0.5);
 }
 
-/* MODAL (PIN) */
+/* ===== MODAL (PIN) ===== */
 .modal{
   position:fixed;
   inset:0;
@@ -235,7 +251,7 @@ button:disabled{opacity:0.4;cursor:not-allowed}
 
 .hidden{display:none}
 
-/* MOBILE */
+/* ===== MOBILE ===== */
 .menu{
   display:none;
   position:absolute;
@@ -253,6 +269,10 @@ button:disabled{opacity:0.4;cursor:not-allowed}
     transition:0.3s;
     z-index:40;
   }
-  .sidebar.open{left:0}
-  .menu{display:block}
+  .sidebar.open{
+    left:0;
+  }
+  .menu{
+    display:block;
+  }
 }
