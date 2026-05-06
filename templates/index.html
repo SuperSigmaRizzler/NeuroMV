@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>NeuroMV</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -10,15 +10,29 @@
 
 <div class="app">
 
+    <!-- MOBILE TOPBAR -->
+    <header class="topbar">
+        <button id="menuBtn">☰</button>
+        <h1>NeuroMV</h1>
+        <button id="newChatBtn">＋</button>
+    </header>
+
     <!-- SIDEBAR -->
-    <div class="sidebar">
-        <div class="logo">NeuroMV</div>
-        <button class="new-chat">+ New Chat</button>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2>Chats</h2>
+        </div>
+
+        <button class="new-chat desktop-only">+ New Chat</button>
+
         <div id="history" class="history"></div>
-    </div>
+    </aside>
+
+    <!-- OVERLAY -->
+    <div class="overlay" id="overlay"></div>
 
     <!-- MAIN -->
-    <div class="main">
+    <main class="main">
 
         <div id="chat-box" class="chat-box"></div>
 
@@ -32,11 +46,10 @@
 
             <textarea id="message" placeholder="Message NeuroMV..."></textarea>
 
-            <button type="submit" class="send-btn">Send</button>
+            <button type="submit" class="send-btn">➤</button>
         </form>
 
-    </div>
-
+    </main>
 </div>
 
 <script src="/static/script.js"></script>

@@ -1,3 +1,5 @@
+# app.py — NeuroMV GOD MODE Flask Backend
+
 import os
 import time
 import random
@@ -5,268 +7,173 @@ import requests
 from flask import Flask, request, jsonify, render_template, session
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "neuromv-safe-mode")
+app.secret_key = "neuromv-god-mode"
 
-# =====================================
+# ===============================
 # CONFIG
-# =====================================
-GROQ_KEYS = [
-    k.strip()
-    for k in os.getenv("GROQ_API_KEYS", "").split(",")
-    if k.strip()
-]
+# ===============================
+GROQ_KEYS = [k.strip() for k in os.getenv("GROQ_API_KEYS", "").split(",") if k.strip()]
+GROQ_MODEL = "llama3-8b-8192"
 
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")
-MAX_MEMORY = 12
-REQUEST_TIMEOUT = 12
-
-# =====================================
-# SESSION MEMORY
-# =====================================
+# ===============================
+# MEMORY
+# ===============================
 def get_memory():
     if "memory" not in session:
         session["memory"] = []
     return session["memory"]
 
-def save_memory(role, content):
+def add_memory(role, content):
     mem = get_memory()
-    mem.append({
-        "role": role,
-        "content": content
-    })
-
-    if len(mem) > MAX_MEMORY:
-        mem = mem[-MAX_MEMORY:]
-
+    mem.append({"role": role, "content": content})
+    if len(mem) > 12:
+        mem.pop(0)
     session["memory"] = mem
 
-def clear_memory():
-    session["memory"] = []
-
-# =====================================
-# SAFE HELPERS
-# =====================================
-def safe_json(resp):
-    try:
-        return resp.json()
-    except:
-        return {}
-
-def is_image_request(text):
-    if not text:
-        return False
-
-    text = text.lower()
-
-    keywords = [
-        "gambar",
-        "image",
-        "foto",
-        "draw",
-        "anime",
-        "buatkan gambar",
-        "generate image",
-        "create image",
-        "lukis"
-    ]
-
-    return any(word in text for word in keywords)
-
-def encode_prompt(text):
-    return requests.utils.quote(text)
-
-# =====================================
-# IMAGE GENERATOR (POLLINATIONS)
-# =====================================
-def generate_image(prompt):
-    prompt = prompt.strip()
-
-    if not prompt:
-        prompt = "beautiful futuristic city"
-
-    clean = encode_prompt(prompt)
-
-    # Stable working source
-    return f"https://image.pollinations.ai/prompt/{clean}?width=768&height=768&seed={random.randint(1,999999)}&model=flux"
-
-# =====================================
-# GROQ SAFE CALL
-# =====================================
+# ===============================
+# GROQ AI
+# ===============================
 def ask_groq(prompt):
     if not GROQ_KEYS:
         return None
 
-    keys = GROQ_KEYS[:]
+    keys = GROQ_KEYS.copy()
     random.shuffle(keys)
 
-    memory = get_memory()
-
     for key in keys:
-        for retry in range(2):
-            try:
-                payload = {
+        try:
+            res = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json"
+                },
+                json={
                     "model": GROQ_MODEL,
-                    "messages": memory + [
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
-                    ],
-                    "temperature": 0.7
-                }
+                    "messages": get_memory() + [
+                        {"role": "user", "content": prompt}
+                    ]
+                },
+                timeout=15
+            )
 
-                r = requests.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {key}",
-                        "Content-Type": "application/json"
-                    },
-                    json=payload,
-                    timeout=REQUEST_TIMEOUT
-                )
+            if res.status_code == 200:
+                return res.json()["choices"][0]["message"]["content"]
 
-                if r.status_code == 200:
-                    data = safe_json(r)
-                    return data["choices"][0]["message"]["content"]
+            if res.status_code == 429:
+                continue
 
-                # rate limit
-                if r.status_code == 429:
-                    time.sleep(1.2)
-                    continue
-
-                # bad key
-                if r.status_code in [401, 403]:
-                    break
-
-                time.sleep(0.5)
-
-            except:
-                time.sleep(0.5)
+        except:
+            continue
 
     return None
 
-# =====================================
-# FREE FALLBACK TEXT AI
-# =====================================
-def ask_pollinations_text(prompt):
+# ===============================
+# POLLINATIONS TEXT FALLBACK
+# ===============================
+def ask_pollinations(prompt):
     try:
-        url = f"https://text.pollinations.ai/{encode_prompt(prompt)}"
-        r = requests.get(url, timeout=10)
-
+        url = f"https://text.pollinations.ai/{prompt.replace(' ', '%20')}"
+        r = requests.get(url, timeout=15)
         if r.status_code == 200:
-            txt = r.text.strip()
-            if txt:
-                return txt
+            return r.text.strip()
     except:
-        pass
+        return None
 
-    return None
-
-# =====================================
-# MASTER AI ROUTER
-# =====================================
+# ===============================
+# MAIN AI
+# ===============================
 def ask_ai(prompt):
-    # Groq first
     reply = ask_groq(prompt)
-
     if reply:
-        save_memory("user", prompt)
-        save_memory("assistant", reply)
+        add_memory("user", prompt)
+        add_memory("assistant", reply)
         return reply
 
-    # Free fallback
-    reply = ask_pollinations_text(prompt)
-
+    reply = ask_pollinations(prompt)
     if reply:
-        save_memory("user", prompt)
-        save_memory("assistant", reply)
+        add_memory("user", prompt)
+        add_memory("assistant", reply)
         return reply
 
-    # Offline final fallback
-    return (
-        "🤖 Safe Mode aktif.\n"
-        "AI utama sedang sibuk / limit sementara.\n\n"
-        f"Pesan kamu: {prompt}"
-    )
+    return "⚠️ AI sedang sibuk / limit. Coba lagi sebentar."
 
-# =====================================
+# ===============================
+# IMAGE GENERATOR
+# ===============================
+bad_words = [
+    "porn", "sex", "nude", "telanjang",
+    "bokep", "hentai", "nsfw"
+]
+
+def safe_prompt(prompt):
+    p = prompt.lower()
+    for w in bad_words:
+        if w in p:
+            return False
+    return True
+
+def generate_image(prompt):
+    if not safe_prompt(prompt):
+        return None
+
+    q = prompt.replace(" ", "%20")
+    return f"https://image.pollinations.ai/prompt/{q}?width=768&height=768&model=flux"
+
+# ===============================
 # ROUTES
-# =====================================
+# ===============================
 @app.route("/")
 def home():
     return render_template("index.html")
 
-@app.route("/new_chat", methods=["POST"])
-def new_chat():
-    clear_memory()
-    return jsonify({
-        "ok": True
-    })
-
 @app.route("/chat", methods=["POST"])
 def chat():
-    try:
-        msg = request.form.get("message", "").strip()
-        file = request.files.get("file")
+    msg = request.form.get("message", "").strip()
+    file = request.files.get("file")
 
-        # -----------------------------
-        # BASIC IMAGE UPLOAD RESPONSE
-        # -----------------------------
-        if file:
-            filename = file.filename or "image"
+    # IMAGE GENERATION
+    trigger = ["gambar", "image", "foto", "anime", "draw", "generate"]
 
+    if any(t in msg.lower() for t in trigger):
+        url = generate_image(msg)
+
+        if not url:
             return jsonify({
                 "type": "text",
-                "reply": f"📷 Gambar '{filename}' diterima. Vision mode basic aktif."
+                "reply": "❌ Prompt gambar tidak diperbolehkan."
             })
-
-        # -----------------------------
-        # EMPTY MESSAGE
-        # -----------------------------
-        if not msg:
-            return jsonify({
-                "type": "text",
-                "reply": "Tulis pesan dulu ya."
-            })
-
-        # -----------------------------
-        # IMAGE GENERATION
-        # -----------------------------
-        if is_image_request(msg):
-            return jsonify({
-                "type": "image",
-                "url": generate_image(msg)
-            })
-
-        # -----------------------------
-        # TEXT CHAT
-        # -----------------------------
-        reply = ask_ai(msg)
 
         return jsonify({
-            "type": "text",
-            "reply": reply
+            "type": "image",
+            "url": url
         })
 
-    except Exception as e:
+    # VISION BASIC
+    if file:
         return jsonify({
             "type": "text",
-            "reply": f"❌ Safe Error: {str(e)}"
+            "reply": "📷 Gambar diterima. Vision mode akan ditingkatkan lagi nanti."
         })
 
-# =====================================
-# HEALTH CHECK
-# =====================================
-@app.route("/health")
-def health():
+    # TEXT AI
+    reply = ask_ai(msg)
+
     return jsonify({
-        "status": "ok",
-        "mode": "safe"
+        "type": "text",
+        "reply": reply
     })
 
-# =====================================
+# ===============================
+# RESET MEMORY
+# ===============================
+@app.route("/reset")
+def reset():
+    session.clear()
+    return "reset ok"
+
+# ===============================
 # RUN
-# =====================================
+# ===============================
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=5000)
