@@ -46,6 +46,8 @@ html,body{
   z-index:60;
   position:fixed;
   overflow:auto;
+  left:0;
+  top:0;
 }
 
 /* Brand */
