@@ -577,8 +577,11 @@ function toggleSidebar(){
 }
 
 function closeSidebarMobile(){
-  if(window.innerWidth < 900){
-    sidebar.classList.remove("show");
+
+  const overlay = document.getElementById("overlay");
+
+  sidebar.classList.remove("show");
+  overlay.classList.add("hidden");
   }
 }
 
