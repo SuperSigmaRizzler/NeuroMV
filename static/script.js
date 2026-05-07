@@ -566,9 +566,14 @@ async function setPinPrompt(){
 // -----------------------------
 function toggleSidebar(){
 
-  sidebar.classList.add("show");
+  const overlay = document.getElementById("overlay");
 
-document.getElementById("overlay").classList.remove("hidden");
+  if(sidebar.classList.contains("show")){
+    sidebar.classList.remove("show");
+    overlay.classList.add("hidden");
+  }else{
+    sidebar.classList.add("show");
+    overlay.classList.remove("hidden");
 }
 
 function closeSidebarMobile(){
