@@ -2,49 +2,61 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroMV</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
+
 <body>
 
-<!-- PIN -->
+<!-- PIN MODAL -->
 <div id="pinModal" class="modal hidden">
   <div class="modal-box">
     <h3>Enter PIN</h3>
-    <input id="pinInput" type="password">
+    <input id="pinInput" type="password" placeholder="••••••">
     <button onclick="submitPin()">Unlock</button>
   </div>
 </div>
 
 <div class="app">
 
-<aside class="sidebar">
-<button onclick="newChat()" class="new-chat">+ New Chat</button>
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <button class="new-chat" onclick="newChat()">+ New Chat</button>
 
-<h3>Chats</h3>
-<div id="history"></div>
+    <h3>Chats</h3>
+    <div id="history"></div>
 
-<h3>Private 🔒</h3>
-<div id="private"></div>
-</aside>
+    <h3>Private 🔒</h3>
+    <div id="private"></div>
+  </aside>
 
-<main class="main">
+  <!-- MAIN -->
+  <main class="main">
 
-<div id="chat" class="chat"></div>
+    <!-- MENU (mobile optional) -->
+    <div class="menu" onclick="toggleMenu()">☰</div>
 
-<div id="preview" class="preview"></div>
+    <!-- CHAT AREA -->
+    <div id="chat" class="chat"></div>
 
-<form id="form" class="input-area">
-  <label class="file-btn">
-    +
-    <input type="file" id="file" hidden>
-  </label>
+    <!-- PREVIEW AREA -->
+    <div id="preview" class="preview"></div>
 
-  <textarea id="input" placeholder="Message NeuroMV..."></textarea>
+    <!-- INPUT -->
+    <form id="form" class="input-area">
+      
+      <label class="file-btn">
+        +
+        <input type="file" id="file" hidden>
+      </label>
 
-  <button type="submit">Send</button>
-</form>
+      <textarea id="input" placeholder="Message NeuroMV..."></textarea>
 
-</main>
+      <button type="submit">Send</button>
+
+    </form>
+
+  </main>
 
 </div>
 
