@@ -581,7 +581,9 @@ function closeSidebarMobile(){
   const overlay = document.getElementById("overlay");
 
   sidebar.classList.remove("show");
-  overlay.classList.add("hidden");
+
+  if(overlay){
+    overlay.classList.add("hidden");
   }
 }
 
@@ -609,18 +611,20 @@ renderHistory();
 renderChat();
 
 
+// =====================
+// MOBILE SWIPE CLOSE
+// =====================
+let startX = 0;
+let endX = 0;
 
-// swipe close sidebar
-let touchStartX = 0;
-
-sidebar.addEventListener("touchstart",(e)=>{
-  touchStartX = e.touches[0].clientX;
+sidebar.addEventListener("touchstart", (e)=>{
+  startX = e.changedTouches[0].screenX;
 });
 
-sidebar.addEventListener("touchmove",(e)=>{
-  let moveX = e.touches[0].clientX;
+sidebar.addEventListener("touchend", (e)=>{
+  endX = e.changedTouches[0].screenX;
 
-  if(moveX - touchStartX < -70){
+  if(startX - endX > 70){
     closeSidebarMobile();
   }
 });
