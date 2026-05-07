@@ -44,6 +44,8 @@ html,body{
   box-shadow:0 8px 35px rgba(148,163,184,.15);
   transition:.25s;
   z-index:60;
+  position:fixed;
+  overflow:auto;
 }
 
 /* Brand */
@@ -547,16 +549,30 @@ html,body{
   display:none;
 }
 
+@media(max-width:900px){
+
+  .sidebar-close-mobile{
+    display:block;
+    position:absolute;
+    top:14px;
+    right:14px;
+    z-index:9999;
+  }
+
+}
+
 .sidebar-close-mobile button{
+  width:42px;
+  height:42px;
   border:none;
-  background:#fff;
-  width:40px;
-  height:40px;
-  border-radius:12px;
+  border-radius:14px;
+  background:#ffffff;
+  color:#111;
+  font-size:22px;
+  font-weight:700;
   cursor:pointer;
-  font-size:20px;
-  position:relative;
-  z-index:70;
+  box-shadow:0 8px 20px rgba(0,0,0,.12);
+  pointer-events:auto;
 }
 
 /* input normal font */
