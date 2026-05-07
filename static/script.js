@@ -565,7 +565,10 @@ async function setPinPrompt(){
 // SIDEBAR
 // -----------------------------
 function toggleSidebar(){
-  sidebar.classList.toggle("show");
+
+  sidebar.classList.add("show");
+
+document.getElementById("overlay").classList.remove("hidden");
 }
 
 function closeSidebarMobile(){
@@ -596,3 +599,20 @@ function escapeHtml(text){
 // -----------------------------
 renderHistory();
 renderChat();
+
+
+
+// swipe close sidebar
+let touchStartX = 0;
+
+sidebar.addEventListener("touchstart",(e)=>{
+  touchStartX = e.touches[0].clientX;
+});
+
+sidebar.addEventListener("touchmove",(e)=>{
+  let moveX = e.touches[0].clientX;
+
+  if(moveX - touchStartX < -70){
+    closeSidebarMobile();
+  }
+});
