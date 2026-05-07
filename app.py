@@ -309,6 +309,15 @@ def chat():
     # CHAT MODE
     reply = ask_ai(chat_id, msg)
 
+# Anti raw HTML / invalid provider response
+low = reply.lower().strip()
+
+if "<html" in low or "<!doctype" in low or "<head>" in low or "<body>" in low:
+    reply = "⚠️ AI provider returned invalid response. Please try again."
+
+if "githubassets" in low or "dns-prefetch" in low:
+    reply = "⚠️ AI source unstable. Switched response blocked."
+
     push_memory(chat_id,"user",msg)
     push_memory(chat_id,"bot",reply)
 

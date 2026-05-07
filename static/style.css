@@ -208,6 +208,7 @@ html,body{
 /* MAIN */
 /* ============================= */
 .main{
+  padding-bottom:env(safe-area-inset-bottom);
   flex:1;
   display:flex;
   flex-direction:column;
@@ -404,7 +405,7 @@ html,body{
   outline:none;
   border-radius:18px;
   padding:13px 15px;
-  font-size:15px;
+  font-size:16px;
   background:#fff;
   box-shadow:0 10px 20px rgba(148,163,184,.12);
 }
@@ -525,5 +526,10 @@ html,body{
 
   .welcome h2{
     font-size:28px;
+  }
+
+  .input-wrap{
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  margin-bottom: 14px;
   }
 }
