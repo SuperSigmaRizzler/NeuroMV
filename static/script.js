@@ -1,12 +1,6 @@
-// ========================================
-// NeuroMV TITAN MODE
 // static/script.js
-// FULL CLEAN VERSION
-// ========================================
+// FULL FINAL TITAN POLISH
 
-// --------------------
-// STORAGE
-// --------------------
 let chats = JSON.parse(localStorage.getItem("neuromv_chats") || "[]");
 let current = localStorage.getItem("neuromv_current") || null;
 let privateChats = JSON.parse(localStorage.getItem("neuromv_private") || "[]");
@@ -14,58 +8,53 @@ let privateChats = JSON.parse(localStorage.getItem("neuromv_private") || "[]");
 let renameTarget = null;
 let deleteTarget = null;
 let selectedFile = null;
+let pinStep = 0;
 
-// --------------------
 // ELEMENTS
-// --------------------
-const chatBox      = document.getElementById("chat");
-const historyBox   = document.getElementById("history");
-const input        = document.getElementById("input");
-const form         = document.getElementById("form");
-const fileInput    = document.getElementById("file");
-const previewBox   = document.getElementById("preview");
-const sendBtn      = document.getElementById("sendBtn");
+const chatBox = document.getElementById("chat");
+const historyBox = document.getElementById("history");
+const input = document.getElementById("input");
+const form = document.getElementById("form");
+const fileInput = document.getElementById("file");
+const previewBox = document.getElementById("preview");
 
-const sidebar      = document.getElementById("sidebar");
-const overlay      = document.getElementById("overlay");
+const sidebar = document.getElementById("sidebar");
+const overlay = document.getElementById("overlay");
 
-const pinModal     = document.getElementById("pinModal");
-const pinInput     = document.getElementById("pinInput");
+const moreMenu = document.getElementById("moreMenu");
 
-const renameModal  = document.getElementById("renameModal");
-const renameInput  = document.getElementById("renameInput");
+const renameModal = document.getElementById("renameModal");
+const renameInput = document.getElementById("renameInput");
 
-const deleteModal  = document.getElementById("deleteModal");
+const deleteModal = document.getElementById("deleteModal");
 
-const moreMenu     = document.getElementById("moreMenu");
+const pinModal = document.getElementById("pinModal");
+const pinInput = document.getElementById("pinInput");
+const pinText = document.getElementById("pinText");
 
-// --------------------
 // SAVE
-// --------------------
 function saveData(){
   localStorage.setItem("neuromv_chats", JSON.stringify(chats));
   localStorage.setItem("neuromv_private", JSON.stringify(privateChats));
   localStorage.setItem("neuromv_current", current || "");
 }
 
-// --------------------
 // HELPERS
-// --------------------
 function uid(){
-  return "c" + Date.now() + Math.floor(Math.random() * 9999);
+  return "c" + Date.now() + Math.floor(Math.random()*9999);
 }
 
-function escapeHtml(text){
-  return String(text)
+function esc(t){
+  return String(t)
     .replace(/&/g,"&amp;")
     .replace(/</g,"&lt;")
     .replace(/>/g,"&gt;");
 }
 
-function smartTitle(text){
-  text = (text || "").trim();
-  if(!text) return "New Chat";
-  return text.length > 28 ? text.slice(0,28) + "..." : text;
+function smartTitle(t){
+  t=(t||"").trim();
+  if(!t) return "New Chat";
+  return t.length>28 ? t.slice(0,28)+"..." : t;
 }
 
 function scrollBottom(){
@@ -74,18 +63,16 @@ function scrollBottom(){
   },50);
 }
 
-// --------------------
-// CHAT CORE
-// --------------------
 function currentChat(){
-  return chats.find(x => x.id === current);
+  return chats.find(x=>x.id===current);
 }
 
+// NEW CHAT
 function newChat(){
   const c = {
     id: uid(),
     title: "New Chat",
-    msg: []
+    msg:[]
   };
 
   chats.unshift(c);
@@ -97,34 +84,24 @@ function newChat(){
   closeSidebarMobile();
 }
 
-// --------------------
 // HISTORY
-// --------------------
 function renderHistory(){
 
   historyBox.innerHTML = "";
 
-  chats.forEach(c => {
+  chats.forEach(c=>{
 
     const item = document.createElement("div");
     item.className = "history-item";
 
     item.innerHTML = `
       <div class="history-top">
+        <div class="history-title">${esc(c.title)}</div>
 
-        <div class="history-title">
-          ${escapeHtml(c.title)}
-        </div>
-
-        <div class="history-actions">
-
-          <button class="icon-btn"
-          onclick="event.stopPropagation();toggleChatMenu('${c.id}',this)">
-            ⋮
-          </button>
-
-        </div>
-
+        <button class="icon-btn"
+        onclick="event.stopPropagation();toggleChatMenu('${c.id}',this)">
+        ⋮
+        </button>
       </div>
     `;
 
@@ -141,38 +118,37 @@ function renderHistory(){
 
 }
 
-// --------------------
-// CHAT MENU
-// --------------------
-function toggleChatMenu(id, btn){
+// MINI MENU
+function toggleChatMenu(id,btn){
 
-  closeAllMiniMenus();
+  closeMiniMenus();
 
   const menu = document.createElement("div");
-  menu.className = "mini-menu";
+  menu.className = "more-menu";
+  menu.style.position = "absolute";
+  menu.style.right = "10px";
+  menu.style.width = "170px";
   menu.innerHTML = `
     <button onclick="openRename('${id}')">✏ Rename</button>
     <button onclick="movePrivate('${id}')">🔒 Private</button>
     <button onclick="askDelete('${id}')">🗑 Delete</button>
   `;
 
+  btn.parentElement.style.position="relative";
   btn.parentElement.appendChild(menu);
 }
 
-function closeAllMiniMenus(){
-  document.querySelectorAll(".mini-menu").forEach(x=>x.remove());
+function closeMiniMenus(){
+  document.querySelectorAll(".history-top .more-menu").forEach(x=>x.remove());
 }
 
 document.addEventListener("click",(e)=>{
-  if(!e.target.closest(".mini-menu") &&
-     !e.target.closest(".icon-btn")){
-    closeAllMiniMenus();
+  if(!e.target.closest(".icon-btn")){
+    closeMiniMenus();
   }
 });
 
-// --------------------
-// RENDER CHAT
-// --------------------
+// CHAT
 function renderChat(){
 
   chatBox.innerHTML = "";
@@ -191,7 +167,7 @@ function renderChat(){
 
   c.msg.forEach(m=>{
 
-    if(m.type === "image"){
+    if(m.type==="image"){
       bubbleImage(m.url,m.role,false);
     }else{
       bubble(m.text,m.role,false,false);
@@ -202,34 +178,32 @@ function renderChat(){
   scrollBottom();
 }
 
-// --------------------
 // BUBBLE
-// --------------------
-function bubble(text,role="bot",save=true,typing=true){
+function bubble(text,role="bot",save=true,type=true){
 
   const row = document.createElement("div");
-  row.className = role === "user" ? "user-row" : "bot-row";
+  row.className = role==="user" ? "user-row":"bot-row";
 
   const box = document.createElement("div");
-  box.className = role === "user" ? "user-bubble" : "bot-bubble";
+  box.className = role==="user" ? "user-bubble":"bot-bubble";
 
   row.appendChild(box);
   chatBox.appendChild(row);
 
-  if(typing && role === "bot"){
+  if(type && role==="bot"){
 
-    let i = 0;
+    let i=0;
 
-    function type(){
-      if(i < text.length){
-        box.innerHTML += escapeHtml(text[i]);
+    function typing(){
+      if(i<text.length){
+        box.innerHTML += esc(text[i]);
         i++;
         scrollBottom();
-        setTimeout(type,10);
+        setTimeout(typing,10);
       }
     }
 
-    type();
+    typing();
 
   }else{
     box.innerText = text;
@@ -240,12 +214,10 @@ function bubble(text,role="bot",save=true,typing=true){
     if(!c) return;
 
     c.msg.push({
-      role: role,
-      text: text,
-      type: "text"
+      role,text,type:"text"
     });
 
-    if(c.msg.length === 1 && role === "user"){
+    if(c.msg.length===1 && role==="user"){
       c.title = smartTitle(text);
     }
 
@@ -256,31 +228,24 @@ function bubble(text,role="bot",save=true,typing=true){
   scrollBottom();
 }
 
-// --------------------
-// IMAGE BUBBLE
-// --------------------
 function bubbleImage(url,role="bot",save=true){
 
   const row = document.createElement("div");
-  row.className = role === "user" ? "user-row" : "bot-row";
+  row.className = role==="user" ? "user-row":"bot-row";
 
   const box = document.createElement("div");
-  box.className = role === "user" ? "user-bubble" : "bot-bubble";
+  box.className = role==="user" ? "user-bubble":"bot-bubble";
 
-  box.innerHTML = `
-    <img src="${url}" class="chat-img">
-  `;
+  box.innerHTML = `<img src="${url}" class="chat-img">`;
 
   row.appendChild(box);
   chatBox.appendChild(row);
 
   if(save){
-    const c = currentChat();
+    const c=currentChat();
     if(c){
       c.msg.push({
-        role: role,
-        url: url,
-        type: "image"
+        role,url,type:"image"
       });
       saveData();
     }
@@ -289,10 +254,8 @@ function bubbleImage(url,role="bot",save=true){
   scrollBottom();
 }
 
-// --------------------
 // SEND
-// --------------------
-form.addEventListener("submit", async function(e){
+form.addEventListener("submit",async(e)=>{
 
   e.preventDefault();
 
@@ -300,44 +263,36 @@ form.addEventListener("submit", async function(e){
 
   if(!msg && !selectedFile) return;
 
-  if(!current){
-    newChat();
-  }
+  if(!current) newChat();
 
-  if(msg){
-    bubble(msg,"user",true,false);
-  }
+  if(msg) bubble(msg,"user",true,false);
 
   if(selectedFile){
-    const localUrl = URL.createObjectURL(selectedFile);
-    bubbleImage(localUrl,"user",true);
+    bubbleImage(URL.createObjectURL(selectedFile),"user",true);
   }
 
-  input.value = "";
-  input.style.height = "auto";
-  previewBox.innerHTML = "";
+  input.value="";
+  input.style.height="auto";
+  previewBox.innerHTML="";
 
-  const thinking = document.createElement("div");
-  thinking.className = "bot-row";
-  thinking.innerHTML = `
-    <div class="bot-bubble">
-      NeuroMV is thinking...
-    </div>
-  `;
-  chatBox.appendChild(thinking);
+  const think = document.createElement("div");
+  think.className="bot-row";
+  think.innerHTML=`<div class="bot-bubble">NeuroMV is thinking...</div>`;
+  chatBox.appendChild(think);
+
   scrollBottom();
 
   try{
 
     const fd = new FormData();
-    fd.append("message", msg);
-    fd.append("chat_id", current);
+    fd.append("message",msg);
+    fd.append("chat_id",current);
 
     if(selectedFile){
-      fd.append("file", selectedFile);
+      fd.append("file",selectedFile);
     }
 
-    selectedFile = null;
+    selectedFile=null;
 
     const res = await fetch("/chat",{
       method:"POST",
@@ -346,74 +301,54 @@ form.addEventListener("submit", async function(e){
 
     const data = await res.json();
 
-    thinking.remove();
+    think.remove();
 
-    if(data.type === "image"){
+    if(data.type==="image"){
       bubbleImage(data.url,"bot",true);
     }else{
       bubble(data.reply || "No response","bot",true,true);
     }
 
   }catch(err){
-
-    thinking.remove();
-    bubble("NeuroMV error occurred.","bot",true,false);
-
+    think.remove();
+    bubble("NeuroMV connection error.","bot",true,false);
   }
 
 });
 
-// --------------------
-// ENTER SEND
-// --------------------
+// ENTER
 input.addEventListener("keydown",(e)=>{
-  if(e.key === "Enter" && !e.shiftKey){
+  if(e.key==="Enter" && !e.shiftKey){
     e.preventDefault();
     form.requestSubmit();
   }
 });
 
-// --------------------
 // AUTO HEIGHT
-// --------------------
 input.addEventListener("input",()=>{
-  input.style.height = "auto";
-  input.style.height = input.scrollHeight + "px";
+  input.style.height="auto";
+  input.style.height=input.scrollHeight+"px";
 });
 
-// --------------------
 // FILE
-// --------------------
 fileInput.addEventListener("change",()=>{
 
-  const f = fileInput.files[0];
+  const f=fileInput.files[0];
   if(!f) return;
 
-  selectedFile = f;
+  selectedFile=f;
 
-  const url = URL.createObjectURL(f);
-
-  previewBox.innerHTML = `
-    <div class="preview-card">
-      <img src="${url}" class="preview-img">
-      <button class="remove-preview"
-      onclick="removeFile()">✕</button>
+  previewBox.innerHTML=`
+    <div class="history-item">
+      ${esc(f.name)}
     </div>
   `;
 });
 
-function removeFile(){
-  selectedFile = null;
-  fileInput.value = "";
-  previewBox.innerHTML = "";
-}
-
-// --------------------
 // RENAME
-// --------------------
 function openRename(id){
-  renameTarget = id;
-  renameInput.value = "";
+  renameTarget=id;
+  renameInput.value="";
   renameModal.classList.remove("hidden");
 }
 
@@ -423,22 +358,20 @@ function closeRename(){
 
 function saveRename(){
 
-  const val = renameInput.value.trim();
+  const val=renameInput.value.trim();
   if(!val) return;
 
-  const c = chats.find(x=>x.id===renameTarget);
-  if(c) c.title = val;
+  const c=chats.find(x=>x.id===renameTarget);
+  if(c) c.title=val;
 
   saveData();
   renderHistory();
   closeRename();
 }
 
-// --------------------
 // DELETE
-// --------------------
 function askDelete(id){
-  deleteTarget = id;
+  deleteTarget=id;
   deleteModal.classList.remove("hidden");
 }
 
@@ -448,10 +381,10 @@ function closeDelete(){
 
 function confirmDelete(){
 
-  chats = chats.filter(x=>x.id !== deleteTarget);
+  chats = chats.filter(x=>x.id!==deleteTarget);
 
-  if(current === deleteTarget){
-    current = chats[0]?.id || null;
+  if(current===deleteTarget){
+    current=chats[0]?.id || null;
   }
 
   saveData();
@@ -460,19 +393,17 @@ function confirmDelete(){
   closeDelete();
 }
 
-// --------------------
 // PRIVATE
-// --------------------
 function movePrivate(id){
 
-  const c = chats.find(x=>x.id===id);
+  const c=chats.find(x=>x.id===id);
   if(!c) return;
 
   privateChats.push(c);
-  chats = chats.filter(x=>x.id!==id);
+  chats=chats.filter(x=>x.id!==id);
 
   if(current===id){
-    current = chats[0]?.id || null;
+    current=chats[0]?.id || null;
   }
 
   saveData();
@@ -481,34 +412,63 @@ function movePrivate(id){
 }
 
 function openPrivate(){
-  alert("Private Chats: " + privateChats.length);
+  alert("Private Chats: "+privateChats.length);
 }
 
-// --------------------
 // PIN
-// --------------------
+function setPinPrompt(){
+
+  pinInput.value="";
+
+  if(localStorage.getItem("neuromv_pin")){
+    pinStep=1;
+    pinText.innerText="Enter Current PIN";
+  }else{
+    pinStep=2;
+    pinText.innerText="Create New PIN";
+  }
+
+  pinModal.classList.remove("hidden");
+}
+
 function submitPin(){
-  pinModal.classList.add("hidden");
+
+  const val = pinInput.value.trim();
+  if(!val) return;
+
+  const oldPin = localStorage.getItem("neuromv_pin");
+
+  if(pinStep===1){
+
+    if(val===oldPin){
+      pinStep=2;
+      pinInput.value="";
+      pinText.innerText="Enter New PIN";
+      return;
+    }else{
+      alert("Wrong PIN");
+      return;
+    }
+
+  }
+
+  if(pinStep===2){
+    localStorage.setItem("neuromv_pin",val);
+    alert("PIN Updated");
+    closePin();
+  }
 }
 
 function closePin(){
   pinModal.classList.add("hidden");
 }
 
-function setPinPrompt(){
-  pinModal.classList.remove("hidden");
-}
-
-// --------------------
-// MORE MENU
-// --------------------
+// MENU
 function toggleMoreMenu(){
   moreMenu.classList.toggle("hidden");
 }
 
-// --------------------
 // SIDEBAR
-// --------------------
 function toggleSidebar(){
 
   if(sidebar.classList.contains("show")){
@@ -517,7 +477,6 @@ function toggleSidebar(){
     sidebar.classList.add("show");
     overlay.classList.remove("hidden");
   }
-
 }
 
 function closeSidebarMobile(){
@@ -525,25 +484,8 @@ function closeSidebarMobile(){
   overlay.classList.add("hidden");
 }
 
-overlay?.addEventListener("click", closeSidebarMobile);
+overlay.onclick = closeSidebarMobile;
 
-// swipe close
-let startX = 0;
-
-sidebar?.addEventListener("touchstart",(e)=>{
-  startX = e.touches[0].clientX;
-});
-
-sidebar?.addEventListener("touchend",(e)=>{
-  let endX = e.changedTouches[0].clientX;
-
-  if(startX - endX > 60){
-    closeSidebarMobile();
-  }
-});
-
-// --------------------
 // INIT
-// --------------------
 renderHistory();
 renderChat();

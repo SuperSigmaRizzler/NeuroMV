@@ -1,53 +1,34 @@
+<!-- templates/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
-
 <title>NeuroMV</title>
-
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
-<!-- ========================= -->
 <!-- PIN MODAL -->
-<!-- ========================= -->
 <div id="pinModal" class="modal hidden">
   <div class="modal-card">
-    <h2>🔒 Private Access</h2>
-    <p>Enter your PIN to continue</p>
+    <h2>🛡 Change PIN</h2>
+    <p id="pinText">Enter PIN</p>
 
-    <input
-      id="pinInput"
-      type="password"
-      maxlength="20"
-      placeholder="Enter PIN"
-      autocomplete="off"
-    >
+    <input id="pinInput" type="password" maxlength="20" placeholder="PIN">
 
     <div class="modal-actions">
-      <button type="button" onclick="submitPin()">Unlock</button>
+      <button type="button" onclick="submitPin()">Continue</button>
       <button type="button" class="ghost" onclick="closePin()">Cancel</button>
     </div>
   </div>
 </div>
 
-<!-- ========================= -->
-<!-- RENAME MODAL -->
-<!-- ========================= -->
+<!-- RENAME -->
 <div id="renameModal" class="modal hidden">
   <div class="modal-card">
     <h2>✏ Rename Chat</h2>
-
-    <input
-      id="renameInput"
-      type="text"
-      maxlength="60"
-      placeholder="New name"
-      autocomplete="off"
-    >
-
+    <input id="renameInput" type="text" maxlength="60" placeholder="New name">
     <div class="modal-actions">
       <button type="button" onclick="saveRename()">Save</button>
       <button type="button" class="ghost" onclick="closeRename()">Cancel</button>
@@ -55,14 +36,11 @@
   </div>
 </div>
 
-<!-- ========================= -->
-<!-- DELETE MODAL -->
-<!-- ========================= -->
+<!-- DELETE -->
 <div id="deleteModal" class="modal hidden">
   <div class="modal-card">
     <h2>🗑 Delete Chat</h2>
-    <p>Are you sure you want to delete this chat?</p>
-
+    <p>Delete this chat permanently?</p>
     <div class="modal-actions">
       <button type="button" class="danger" onclick="confirmDelete()">Delete</button>
       <button type="button" class="ghost" onclick="closeDelete()">Cancel</button>
@@ -70,174 +48,90 @@
   </div>
 </div>
 
-<!-- ========================= -->
-<!-- APP -->
-<!-- ========================= -->
 <div class="app">
 
-  <!-- ========================= -->
-  <!-- SIDEBAR -->
-  <!-- ========================= -->
-  <aside id="sidebar" class="sidebar">
+<!-- SIDEBAR -->
+<aside id="sidebar" class="sidebar">
 
-    <!-- mobile close -->
-    <div class="sidebar-close-mobile">
-      <button type="button" onclick="closeSidebarMobile()">✕</button>
-    </div>
+<div class="sidebar-close-mobile">
+<button onclick="closeSidebarMobile()">✕</button>
+</div>
 
-    <!-- brand -->
-    <div class="brand">
-      <div class="logo">✦</div>
+<div class="brand">
+<div class="logo">✦</div>
+<div class="brand-text">
+<h1>NeuroMV</h1>
+<span>Made by Marvell Jonathan</span>
+</div>
+</div>
 
-      <div class="brand-text">
-        <h1>NeuroMV</h1>
-        <span>Made by Marvell Jonathan</span>
-      </div>
-    </div>
+<button class="new-chat-btn" onclick="newChat()">＋ New Chat</button>
 
-    <!-- new chat -->
-    <button type="button" class="new-chat-btn" onclick="newChat()">
-      ＋ New Chat
-    </button>
+<div class="section-title">Chats</div>
 
-    <!-- section -->
-    <div class="section-title">
-      Chats
-    </div>
+<div id="history" class="history-list"></div>
 
-    <!-- history -->
-    <div id="history" class="history-list"></div>
+<div class="sidebar-footer">
 
-    <!-- footer -->
-    <div class="sidebar-footer">
+<button class="menu-btn" onclick="openPrivate()">
+🔒 Private
+</button>
 
-      <button type="button" class="menu-btn" onclick="openPrivate()">
-        🔒 Private
-      </button>
+<button class="menu-btn" onclick="toggleMoreMenu()">
+⋮
+</button>
 
-      <button type="button" class="menu-btn" onclick="toggleMoreMenu()">
-        ⋮
-      </button>
+<div id="moreMenu" class="more-menu hidden">
+<button onclick="openPrivate()">🔒 Private Chats</button>
+<button onclick="setPinPrompt()">🛡 Change PIN</button>
+<button onclick="toggleMoreMenu()">✕ Close</button>
+</div>
 
-      <!-- dropdown -->
-      <div id="moreMenu" class="more-menu hidden">
-        <button type="button" onclick="openPrivate()">🔒 Private Chats</button>
-        <button type="button" onclick="setPinPrompt()">🛡 Set / Change PIN</button>
-      </div>
+</div>
+</aside>
 
-    </div>
+<!-- MAIN -->
+<main class="main">
 
-  </aside>
+<div id="overlay" class="overlay hidden" onclick="closeSidebarMobile()"></div>
 
-  <!-- ========================= -->
-  <!-- MAIN -->
-  <!-- ========================= -->
-  <main class="main">
+<div class="mobile-topbar">
+<button class="hamburger" onclick="toggleSidebar()">☰</button>
+<div class="mobile-title">NeuroMV</div>
+<button class="dots-btn" onclick="toggleMoreMenu()">⋮</button>
+</div>
 
-    <!-- overlay -->
-    <div
-      id="overlay"
-      class="overlay hidden"
-      onclick="closeSidebarMobile()"
-    ></div>
+<div id="chat" class="chat-area">
+<div class="welcome">
+<h2>NeuroMV</h2>
+<p>Your intelligent AI assistant</p>
+</div>
+</div>
 
-    <!-- mobile topbar -->
-    <div class="mobile-topbar">
+<div id="preview" class="preview-wrap"></div>
 
-      <button
-        type="button"
-        class="hamburger"
-        onclick="toggleSidebar()"
-      >
-        ☰
-      </button>
+<form id="form" class="input-wrap">
 
-      <div class="mobile-title">
-        NeuroMV
-      </div>
+<label class="upload-btn">
++
+<input type="file" id="file" hidden>
+</label>
 
-      <div class="topbar-right">
+<textarea
+id="input"
+rows="1"
+placeholder="Message NeuroMV..."
+autocomplete="off"
+spellcheck="false"
+></textarea>
 
-        <div id="providerBadge" class="provider-badge">
-          AI Ready
-        </div>
+<button type="submit" id="sendBtn">➤</button>
 
-        <button
-          type="button"
-          class="dots-btn"
-          onclick="toggleMoreMenu()"
-        >
-          ⋮
-        </button>
+</form>
 
-      </div>
-
-    </div>
-
-    <!-- ========================= -->
-    <!-- CHAT AREA -->
-    <!-- ========================= -->
-    <div id="chat" class="chat-area">
-
-      <div class="welcome">
-        <h2>NeuroMV</h2>
-        <p>Your intelligent AI assistant</p>
-      </div>
-
-    </div>
-
-    <!-- ========================= -->
-    <!-- FILE PREVIEW -->
-    <!-- ========================= -->
-    <div id="preview" class="preview-wrap"></div>
-
-    <!-- ========================= -->
-    <!-- INPUT AREA -->
-    <!-- ========================= -->
-    <form id="form" class="input-wrap">
-
-      <!-- upload -->
-      <label class="upload-btn" title="Upload File">
-        +
-        <input type="file" id="file" hidden>
-      </label>
-
-      <!-- textarea -->
-      <textarea
-        id="input"
-        rows="1"
-        placeholder="Message NeuroMV..."
-        autocomplete="off"
-        spellcheck="false"
-      ></textarea>
-
-      <!-- mic -->
-      <button
-        type="button"
-        id="micBtn"
-        class="mic-btn"
-        onclick="startVoiceInput()"
-        title="Voice Input"
-      >
-        🎙
-      </button>
-
-      <!-- send -->
-      <button
-        id="sendBtn"
-        type="submit"
-        title="Send"
-      >
-        ➤
-      </button>
-
-    </form>
-
-  </main>
-
+</main>
 </div>
 
 <script src="/static/script.js"></script>
-
 </body>
 </html>
