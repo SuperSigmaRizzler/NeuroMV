@@ -1,17 +1,30 @@
 from flask import Flask, render_template, request, jsonify, session
-import requests, time, base64, os, hashlib, re, random
+import requests, time, base64, os, json, hashlib, random, re
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "neuromv-v3-godmode")
+app.secret_key = os.getenv("SECRET_KEY", "neuromv-v5-titan")
 
 # ==================================================
 # CONFIG
 # ==================================================
 DAILY_LIMIT = 9999
-IMAGE_LIMIT = 50
-MEMORY_SIZE = 18
+IMAGE_LIMIT = 80
+MEMORY_SIZE = 32
+PROFILE_FILE = "user_profiles.json"
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+# ==================================================
+# API KEYS
+# ==================================================
+RAW_KEYS = os.getenv("GROQ_API_KEYS", "")
+GROQ_KEYS = [x.strip() for x in RAW_KEYS.split(",") if x.strip()]
+
+if not GROQ_KEYS:
+    single = os.getenv("GROQ_API_KEY", "").strip()
+    if single:
+        GROQ_KEYS = [single]
+
+CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ==================================================
 # IDENTITY
@@ -19,51 +32,83 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 SYSTEM_PROMPT = """
 You are NeuroMV.
 
-Your identity:
+Identity Rules:
 - Your name is NeuroMV
-- You are an intelligent AI assistant
+- You are an advanced AI assistant
 - You were created by Marvell Jonathan Siau
-- If user asks who created you, answer: Marvell Jonathan Siau
+- If asked who created you, answer exactly:
+Marvell Jonathan Siau
 - Never deny your identity
-- Always speak naturally
-- Never output random code unless user explicitly asks programming help
-- Be smart, modern, useful, friendly
+- Speak naturally
+- Be intelligent, modern, helpful, friendly
+- Give useful answers
+- Never output random broken code
 """
 
 # ==================================================
-# IMAGE KEYWORDS (100)
+# IMAGE KEYWORDS
 # ==================================================
 IMAGE_WORDS = [
-"image","gambar","foto","draw","drawing","anime","art","generate","create image",
-"buat gambar","lukis","paint","painting","render","design","sketch","illustration",
-"poster","wallpaper","avatar","profile pic","logo","scene","visual","make photo",
-"make image","generate photo","generate picture","picture","pic","snap","portrait",
-"landscape","cyberpunk","fantasy","3d","cinematic","realistic","photorealistic",
-"manga","waifu","character","robot","spaceship","city","future city","sunset",
-"ocean","mountain","forest","dragon","car","supercar","motorcycle","fashion",
-"clothes","architecture","house","room","bedroom","kitchen","gaming room",
-"cute cat","dog","animal","monster","weapon art","armor","knight","angel",
-"demon","galaxy","space","planet","moon","mars","earth","storm","fire","ice",
-"magic","wizard","castle","temple","samurai","ninja","battle","warrior","elf",
-"fairy","neon","abstract","pixel art","retro","vaporwave","chibi","comic"
+"image","gambar","foto","draw","drawing","art","anime",
+"generate","create image","buat gambar","paint","poster",
+"wallpaper","avatar","logo","portrait","landscape",
+"pic","picture","render","scene","3d","realistic",
+"character","robot","dragon","car","house","city",
+"space","moon","planet","fantasy","comic"
 ]
 
 # ==================================================
-# BANNED WORDS (100)
+# MODERATION
 # ==================================================
-BANNED = [
-"porn","porno","sex","seks","nude","telanjang","bokep","hentai","rule34","r34",
-"nsfw","xxx","blowjob","handjob","fetish","cum","milf","bdsm","rape","incest",
-"loli","shota","vagina","penis","boobs","tits","nipple","ass","anal","orgasm",
-"masturbate","jerkoff","semen","ejaculate","threesome","gangbang","slut","whore",
-"escort","prostitute","deepthroat","horny","aroused","naked","undress","lingerie",
-"cameltoe","onlyfans","camgirl","camsex","pornhub","xnxx","xvideos","jav",
-"oppai","ecchi","yaoi","yuri","furry nsfw","gore sex","child porn","cp",
-"pedo","pedophile","bestiality","zoophilia","necrophilia","rapeplay","molest",
-"淫乱","裸体","色情","性爱","性","裸體","色情片","エロ","変態","裸","ポルノ",
-"섹스","야동","포르노","누드","секc","порно","عرى","اباحي","جنس","pornoğrafi",
-"seksueel","seksual","desnudo","sexo","pornografia","nua","putaria"
+RISK_WORDS = [
+"porn","nsfw","18+","hentai","rule34","r34",
+"nude","explicit","illegal","forced","minor"
 ]
+
+def normalize_text(text):
+    text = text.lower()
+    text = text.replace("0","o").replace("1","i")
+    text = text.replace("3","e").replace("4","a")
+    text = text.replace("5","s").replace("@","a")
+    text = re.sub(r'[_\-.]+', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+def blocked_chat(msg):
+    t = normalize_text(msg)
+
+    bad = [
+        "child exploit",
+        "minor sex",
+        "forced sex",
+        "illegal abuse",
+        "animal sex",
+        "rape fantasy"
+    ]
+
+    if any(x in t for x in bad):
+        return True
+
+    return False
+
+def blocked_image(msg):
+    t = normalize_text(msg)
+
+    if any(x in t for x in RISK_WORDS):
+        return True
+
+    suspicious = [
+        "adult image",
+        "naked version",
+        "remove clothes",
+        "sex image",
+        "private body"
+    ]
+
+    if any(x in t for x in suspicious):
+        return True
+
+    return False
 
 # ==================================================
 # UTIL
@@ -85,8 +130,78 @@ def count_img():
     ensure_counter()
     session["img"] = session.get("img", 0) + 1
 
+def user_id():
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    ua = request.headers.get("User-Agent", "")
+    raw = ip + ua
+    return hashlib.md5(raw.encode()).hexdigest()
+
 # ==================================================
-# MEMORY
+# PROFILE MEMORY
+# ==================================================
+def load_profiles():
+    try:
+        with open(PROFILE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_profiles(data):
+    with open(PROFILE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+def get_profile():
+    uid = user_id()
+    db = load_profiles()
+
+    if uid not in db:
+        db[uid] = {
+            "likes": [],
+            "facts": [],
+            "name": "",
+            "style": ""
+        }
+        save_profiles(db)
+
+    return db[uid]
+
+def update_profile_from_message(msg):
+    uid = user_id()
+    db = load_profiles()
+
+    if uid not in db:
+        db[uid] = {
+            "likes": [],
+            "facts": [],
+            "name": "",
+            "style": ""
+        }
+
+    low = msg.lower()
+
+    interests = [
+        "game","gaming","anime","coding",
+        "music","football","basketball",
+        "movie","crypto","ai","robot",
+        "mlbb","free fire","pubg"
+    ]
+
+    for x in interests:
+        if x in low and x not in db[uid]["likes"]:
+            db[uid]["likes"].append(x)
+
+    if "my name is " in low:
+        try:
+            name = low.split("my name is ")[1].split(" ")[0]
+            db[uid]["name"] = name.title()
+        except:
+            pass
+
+    db[uid]["likes"] = db[uid]["likes"][:20]
+    save_profiles(db)
+
+# ==================================================
+# CHAT MEMORY
 # ==================================================
 def get_memory(chat_id):
     if "mem" not in session:
@@ -108,8 +223,17 @@ def push_memory(chat_id, role, text):
 
 def build_prompt(chat_id, msg):
     mem = get_memory(chat_id)
+    profile = get_profile()
 
-    txt = SYSTEM_PROMPT + "\n"
+    txt = SYSTEM_PROMPT + "\n\n"
+
+    if profile["name"]:
+        txt += f"User Name: {profile['name']}\n"
+
+    if profile["likes"]:
+        txt += "User Interests: " + ", ".join(profile["likes"]) + "\n"
+
+    txt += "\nRecent Chat Memory:\n"
 
     for m in mem:
         txt += f"{m['role']}: {m['text']}\n"
@@ -118,27 +242,58 @@ def build_prompt(chat_id, msg):
     return txt
 
 # ==================================================
-# AI ROUTER
+# AI PROVIDERS
 # ==================================================
-def ai_groq(prompt):
-    if not GROQ_API_KEY:
+def ask_groq(prompt):
+    if not GROQ_KEYS:
+        return None
+
+    random.shuffle(GROQ_KEYS)
+
+    for key in GROQ_KEYS:
+        try:
+            r = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type":"application/json"
+                },
+                json={
+                    "model":"llama3-70b-8192",
+                    "messages":[
+                        {"role":"system","content":SYSTEM_PROMPT},
+                        {"role":"user","content":prompt}
+                    ]
+                },
+                timeout=12
+            )
+
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"].strip()
+        except:
+            pass
+
+    return None
+
+def ask_cerebras(prompt):
+    if not CEREBRAS_API_KEY:
         return None
 
     try:
         r = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
+            "https://api.cerebras.ai/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json"
+                "Authorization": f"Bearer {CEREBRAS_API_KEY}",
+                "Content-Type":"application/json"
             },
             json={
-                "model":"llama3-70b-8192",
+                "model":"llama3.1-8b",
                 "messages":[
                     {"role":"system","content":SYSTEM_PROMPT},
                     {"role":"user","content":prompt}
                 ]
             },
-            timeout=12
+            timeout=14
         )
 
         if r.status_code == 200:
@@ -148,11 +303,10 @@ def ai_groq(prompt):
 
     return None
 
-def ai_pollinations(prompt):
+def ask_pollinations(prompt):
     try:
         r = requests.get(
-            "https://text.pollinations.ai/",
-            params={"prompt": prompt},
+            "https://text.pollinations.ai/" + prompt,
             timeout=10
         )
         if r.status_code == 200 and r.text.strip():
@@ -161,76 +315,48 @@ def ai_pollinations(prompt):
         pass
     return None
 
-def ai_local(msg):
-    low = msg.lower()
-
-    if "halo" in low or "hai" in low:
-        return "Halo! Aku NeuroMV. Ada yang bisa kubantu?"
-
-    if "siapa kamu" in low:
-        return "Aku NeuroMV, AI assistant cerdas."
-
-    if "siapa penciptamu" in low or "who created you" in low:
-        return "Aku diciptakan oleh Marvell Jonathan Siau."
-
-    return "NeuroMV sedang menstabilkan sistem AI. Coba lagi sebentar."
-
 def ask_ai(chat_id, msg):
     prompt = build_prompt(chat_id, msg)
 
-    for fn in [ai_groq, ai_pollinations]:
-        try:
-            out = fn(prompt)
-            if out:
-                return out
-        except:
-            pass
+    for fn in [ask_groq, ask_cerebras, ask_pollinations]:
+        x = fn(prompt)
+        if x:
+            return x
 
-    return ai_local(msg)
+    return "I'm NeuroMV. Temporary AI network issue, but I'm still here with you."
 
 # ==================================================
-# IMAGE DETECTION
+# IMAGE
 # ==================================================
 def wants_image(msg):
     low = msg.lower()
-    for w in IMAGE_WORDS:
-        if w in low:
-            return True
-    return False
+    return any(x in low for x in IMAGE_WORDS)
 
-def blocked_prompt(msg):
-    low = msg.lower()
-    for b in BANNED:
-        if b in low:
-            return True
-    return False
-
-def generate_image(prompt):
-    if blocked_prompt(prompt):
+def make_image(prompt):
+    if blocked_image(prompt):
         return {
-            "error":"⚠️ Image request blocked by NeuroMV Safety Guard."
+            "error":"⚠️ NeuroMV Safety System blocked that image request."
         }
 
     count_img()
 
-    enhanced = prompt + ", ultra detailed, masterpiece, 4k, cinematic lighting"
+    q = prompt + ", ultra detailed, cinematic lighting, 4k"
+    url = "https://image.pollinations.ai/prompt/" + q.replace(" ","%20")
 
-    url = "https://image.pollinations.ai/prompt/" + enhanced.replace(" ","%20")
-
-    return {"url": url}
+    return {"url":url}
 
 # ==================================================
-# OCR / VISION
+# OCR
 # ==================================================
-def read_image_text(img_bytes):
+def image_caption(img_bytes):
     try:
         b64 = base64.b64encode(img_bytes).decode()
-        prompt = "Read all visible text in this image carefully: data:image/jpeg;base64," + b64
+
+        prompt = "Read text and describe image briefly: data:image/png;base64," + b64
 
         r = requests.get(
-            "https://text.pollinations.ai/",
-            params={"prompt": prompt},
-            timeout=14
+            "https://text.pollinations.ai/" + prompt,
+            timeout=12
         )
 
         if r.status_code == 200 and r.text.strip():
@@ -239,31 +365,7 @@ def read_image_text(img_bytes):
     except:
         pass
 
-    return "Aku melihat gambar, tetapi teks sulit dibaca."
-
-# ==================================================
-# PIN
-# ==================================================
-def h(x):
-    return hashlib.sha256(x.encode()).hexdigest()
-
-@app.route("/set_pin", methods=["POST"])
-def set_pin():
-    pin = request.json.get("pin","")
-    session["pin"] = h(pin)
-    return jsonify({"ok":True})
-
-@app.route("/verify_pin", methods=["POST"])
-def verify_pin():
-    pin = request.json.get("pin","")
-    if session.get("pin") == h(pin):
-        session["unlock"] = True
-        return jsonify({"ok":True})
-    return jsonify({"ok":False})
-
-@app.route("/check_unlock")
-def check_unlock():
-    return jsonify({"unlocked": session.get("unlock", False)})
+    return "I can see the image, but reading failed."
 
 # ==================================================
 # ROUTES
@@ -274,60 +376,65 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
+
+    chat_id = request.form.get("chat_id", "default")
+    msg = request.form.get("message", "").strip()
+
     count_chat()
 
-    chat_id = request.form.get("chat_id","default")
-    msg = request.form.get("message","").strip()
-
-    # FILE OCR
+    # FILE IMAGE
     if "file" in request.files:
         f = request.files["file"]
+
         if f and f.filename:
-            txt = read_image_text(f.read())
-            push_memory(chat_id,"user","[image]")
-            push_memory(chat_id,"bot",txt)
+            cap = image_caption(f.read())
+
+            push_memory(chat_id, "user", "[image]")
+            push_memory(chat_id, "bot", cap)
+
             return jsonify({
                 "type":"text",
-                "reply":txt
+                "reply":cap
             })
+
+    # MODERATION
+    if blocked_chat(msg):
+        return jsonify({
+            "type":"text",
+            "reply":"⚠️ NeuroMV cannot assist with that request."
+        })
 
     # IMAGE MODE
     if wants_image(msg):
-        out = generate_image(msg)
+        out = make_image(msg)
 
         if "error" in out:
             return jsonify({
                 "type":"text",
-                "reply": out["error"]
+                "reply":out["error"]
             })
 
         return jsonify({
             "type":"image",
-            "url": out["url"]
+            "url":out["url"]
         })
 
-    # CHAT MODE
+    # MEMORY PROFILE
+    update_profile_from_message(msg)
+
+    # AI
     reply = ask_ai(chat_id, msg)
 
-    # Anti raw HTML / invalid provider response
-    low = reply.lower().strip()
-
-    if "<html" in low or "<!doctype" in low or "<head>" in low or "<body>" in low:
-        reply = "⚠️ AI provider returned invalid response. Please try again."
-
-    if "githubassets" in low or "dns-prefetch" in low:
-        reply = "⚠️ AI source unstable. Switched response blocked."
-
-    push_memory(chat_id,"user",msg)
-    push_memory(chat_id,"bot",reply)
+    push_memory(chat_id, "user", msg)
+    push_memory(chat_id, "bot", reply)
 
     return jsonify({
         "type":"text",
-        "reply": reply
+        "reply":reply
     })
 
 # ==================================================
 # RUN
 # ==================================================
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)

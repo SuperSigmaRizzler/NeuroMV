@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 
 <title>NeuroMV</title>
 
@@ -18,11 +18,17 @@
     <h2>🔒 Private Access</h2>
     <p>Enter your PIN to continue</p>
 
-    <input id="pinInput" type="password" maxlength="20" placeholder="Enter PIN">
+    <input
+      id="pinInput"
+      type="password"
+      maxlength="20"
+      placeholder="Enter PIN"
+      autocomplete="off"
+    >
 
     <div class="modal-actions">
-      <button onclick="submitPin()">Unlock</button>
-      <button class="ghost" onclick="closePin()">Cancel</button>
+      <button type="button" onclick="submitPin()">Unlock</button>
+      <button type="button" class="ghost" onclick="closePin()">Cancel</button>
     </div>
   </div>
 </div>
@@ -34,11 +40,17 @@
   <div class="modal-card">
     <h2>✏ Rename Chat</h2>
 
-    <input id="renameInput" type="text" maxlength="60" placeholder="New name">
+    <input
+      id="renameInput"
+      type="text"
+      maxlength="60"
+      placeholder="New name"
+      autocomplete="off"
+    >
 
     <div class="modal-actions">
-      <button onclick="saveRename()">Save</button>
-      <button class="ghost" onclick="closeRename()">Cancel</button>
+      <button type="button" onclick="saveRename()">Save</button>
+      <button type="button" class="ghost" onclick="closeRename()">Cancel</button>
     </div>
   </div>
 </div>
@@ -52,8 +64,8 @@
     <p>Are you sure you want to delete this chat?</p>
 
     <div class="modal-actions">
-      <button class="danger" onclick="confirmDelete()">Delete</button>
-      <button class="ghost" onclick="closeDelete()">Cancel</button>
+      <button type="button" class="danger" onclick="confirmDelete()">Delete</button>
+      <button type="button" class="ghost" onclick="closeDelete()">Cancel</button>
     </div>
   </div>
 </div>
@@ -67,48 +79,50 @@
   <!-- SIDEBAR -->
   <!-- ========================= -->
   <aside id="sidebar" class="sidebar">
-<div class="sidebar-close-mobile">
-  <button type="button"  onclick="closeSidebarMobile()">✕</button>
-</div>
 
-    <!-- Logo -->
+    <!-- mobile close -->
+    <div class="sidebar-close-mobile">
+      <button type="button" onclick="closeSidebarMobile()">✕</button>
+    </div>
+
+    <!-- brand -->
     <div class="brand">
       <div class="logo">✦</div>
+
       <div class="brand-text">
         <h1>NeuroMV</h1>
         <span>Made by Marvell Jonathan</span>
       </div>
     </div>
 
-    <!-- New Chat -->
-    <button class="new-chat-btn" onclick="newChat()">
+    <!-- new chat -->
+    <button type="button" class="new-chat-btn" onclick="newChat()">
       ＋ New Chat
     </button>
 
-    <!-- Chat List -->
+    <!-- section -->
     <div class="section-title">
       Chats
     </div>
 
+    <!-- history -->
     <div id="history" class="history-list"></div>
 
-    <!-- Footer -->
+    <!-- footer -->
     <div class="sidebar-footer">
 
-      <!-- Private -->
-      <button class="menu-btn" onclick="openPrivate()">
+      <button type="button" class="menu-btn" onclick="openPrivate()">
         🔒 Private
       </button>
 
-      <!-- More -->
-      <button class="menu-btn" onclick="toggleMoreMenu()">
+      <button type="button" class="menu-btn" onclick="toggleMoreMenu()">
         ⋮
       </button>
 
-      <!-- Hidden Dropdown -->
+      <!-- dropdown -->
       <div id="moreMenu" class="more-menu hidden">
-        <button onclick="openPrivate()">🔒 Private Chats</button>
-        <button onclick="setPinPrompt()">🛡 Set / Change PIN</button>
+        <button type="button" onclick="openPrivate()">🔒 Private Chats</button>
+        <button type="button" onclick="setPinPrompt()">🛡 Set / Change PIN</button>
       </div>
 
     </div>
@@ -118,28 +132,53 @@
   <!-- ========================= -->
   <!-- MAIN -->
   <!-- ========================= -->
-<main class="main">
+  <main class="main">
 
-<div id="overlay" class="overlay hidden" onclick="closeSidebarMobile()"></div>
+    <!-- overlay -->
+    <div
+      id="overlay"
+      class="overlay hidden"
+      onclick="closeSidebarMobile()"
+    ></div>
 
-<div class="mobile-topbar">
+    <!-- mobile topbar -->
+    <div class="mobile-topbar">
 
-<button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <button
+        type="button"
+        class="hamburger"
+        onclick="toggleSidebar()"
+      >
+        ☰
+      </button>
 
       <div class="mobile-title">
         NeuroMV
       </div>
 
-      <button class="dots-btn" onclick="toggleMoreMenu()">
-        ⋮
-      </button>
+      <div class="topbar-right">
+
+        <div id="providerBadge" class="provider-badge">
+          AI Ready
+        </div>
+
+        <button
+          type="button"
+          class="dots-btn"
+          onclick="toggleMoreMenu()"
+        >
+          ⋮
+        </button>
+
+      </div>
 
     </div>
 
+    <!-- ========================= -->
     <!-- CHAT AREA -->
+    <!-- ========================= -->
     <div id="chat" class="chat-area">
 
-      <!-- Welcome -->
       <div class="welcome">
         <h2>NeuroMV</h2>
         <p>Your intelligent AI assistant</p>
@@ -147,28 +186,48 @@
 
     </div>
 
+    <!-- ========================= -->
     <!-- FILE PREVIEW -->
+    <!-- ========================= -->
     <div id="preview" class="preview-wrap"></div>
 
-    <!-- INPUT -->
+    <!-- ========================= -->
+    <!-- INPUT AREA -->
+    <!-- ========================= -->
     <form id="form" class="input-wrap">
 
-      <!-- Upload -->
-      <label class="upload-btn">
+      <!-- upload -->
+      <label class="upload-btn" title="Upload File">
         +
         <input type="file" id="file" hidden>
       </label>
 
-      <!-- Text -->
+      <!-- textarea -->
       <textarea
         id="input"
         rows="1"
         placeholder="Message NeuroMV..."
         autocomplete="off"
+        spellcheck="false"
       ></textarea>
 
-      <!-- Send -->
-      <button id="sendBtn" type="submit">
+      <!-- mic -->
+      <button
+        type="button"
+        id="micBtn"
+        class="mic-btn"
+        onclick="startVoiceInput()"
+        title="Voice Input"
+      >
+        🎙
+      </button>
+
+      <!-- send -->
+      <button
+        id="sendBtn"
+        type="submit"
+        title="Send"
+      >
         ➤
       </button>
 
