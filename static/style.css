@@ -599,3 +599,57 @@ html,body{
   }
 
 }
+
+/* =========================
+CHAT BUBBLE FIX
+========================= */
+
+.user-row,
+.bot-row{
+  display:flex;
+  width:100%;
+  margin:10px 0;
+}
+
+.user-row{
+  justify-content:flex-end;
+}
+
+.bot-row{
+  justify-content:flex-start;
+}
+
+.user-bubble,
+.bot-bubble{
+  max-width:78%;
+  padding:12px 15px;
+  border-radius:18px;
+  font-size:15px;
+  line-height:1.45;
+  word-wrap:break-word;
+  white-space:pre-wrap;
+  box-shadow:0 8px 24px rgba(0,0,0,.06);
+}
+
+.user-bubble{
+  background:linear-gradient(135deg,#60a5fa,#3b82f6);
+  color:#fff;
+  border-bottom-right-radius:6px;
+}
+
+.bot-bubble{
+  background:#ffffff;
+  color:#1e293b;
+  border:1px solid #e5e7eb;
+  border-bottom-left-radius:6px;
+}
+
+.chat-img{
+  max-width:240px;
+  border-radius:14px;
+  display:block;
+}
+
+.thinking{
+  opacity:.9;
+}
