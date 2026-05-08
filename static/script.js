@@ -1,81 +1,91 @@
 // ========================================
-// NeuroMV V3 GOD MODE
+// NeuroMV V3 GOD MODE FINAL
 // static/script.js
 // ========================================
 
-// -----------------------------
-// STATE
-// -----------------------------
+// --------------------
+// STORAGE
+// --------------------
 let chats = JSON.parse(localStorage.getItem("neuromv_chats") || "[]");
 let current = localStorage.getItem("neuromv_current") || null;
 
+let privateChats =
+JSON.parse(localStorage.getItem("neuromv_private") || "[]");
+
 let renameTarget = null;
 let deleteTarget = null;
-
-let privateChats = JSON.parse(localStorage.getItem("neuromv_private") || "[]");
-
 let selectedFile = null;
-let isTyping = false;
 
-// -----------------------------
+// --------------------
 // ELEMENTS
-// -----------------------------
-const chatBox     = document.getElementById("chat");
-const historyBox  = document.getElementById("history");
-const input       = document.getElementById("input");
-const form        = document.getElementById("form");
-const fileInput   = document.getElementById("file");
-const previewBox  = document.getElementById("preview");
-const sendBtn     = document.getElementById("sendBtn");
-const sidebar     = document.getElementById("sidebar");
+// --------------------
+const chatBox    = document.getElementById("chat");
+const historyBox = document.getElementById("history");
+const input      = document.getElementById("input");
+const form       = document.getElementById("form");
+const fileInput  = document.getElementById("file");
+const previewBox = document.getElementById("preview");
+const sendBtn    = document.getElementById("sendBtn");
+const sidebar    = document.getElementById("sidebar");
+const overlay    = document.getElementById("overlay");
 
-const pinModal    = document.getElementById("pinModal");
-const pinInput    = document.getElementById("pinInput");
+const pinModal   = document.getElementById("pinModal");
+const pinInput   = document.getElementById("pinInput");
 
 const renameModal = document.getElementById("renameModal");
 const renameInput = document.getElementById("renameInput");
 
 const deleteModal = document.getElementById("deleteModal");
 
-const moreMenu    = document.getElementById("moreMenu");
+const moreMenu = document.getElementById("moreMenu");
 
-// -----------------------------
+// --------------------
 // SAVE
-// -----------------------------
+// --------------------
 function saveData(){
   localStorage.setItem("neuromv_chats", JSON.stringify(chats));
   localStorage.setItem("neuromv_private", JSON.stringify(privateChats));
   localStorage.setItem("neuromv_current", current || "");
 }
 
-// -----------------------------
+// --------------------
 // HELPERS
-// -----------------------------
+// --------------------
 function uid(){
   return "c" + Date.now() + Math.floor(Math.random()*999);
 }
 
+function escapeHtml(text){
+  return text
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;");
+}
+
 function smartTitle(text){
-  text = text.trim();
   if(!text) return "New Chat";
-
-  if(text.length <= 26) return text;
-
-  return text.slice(0,26) + "...";
+  text = text.trim();
+  return text.length > 26 ? text.slice(0,26)+"..." : text;
 }
 
 function scrollBottom(){
-  chatBox.scrollTop = chatBox.scrollHeight;
+  setTimeout(()=>{
+    chatBox.scrollTop = chatBox.scrollHeight;
+  },50);
 }
 
-// -----------------------------
-// CHAT CREATE
-// -----------------------------
+// --------------------
+// CHAT SYSTEM
+// --------------------
+function currentChat(){
+  return chats.find(x=>x.id===current);
+}
+
 function newChat(){
   const c = {
     id: uid(),
     title: "New Chat",
-    msg: []
+    msg:[]
   };
 
   chats.unshift(c);
@@ -84,16 +94,14 @@ function newChat(){
   saveData();
   renderHistory();
   renderChat();
+  closeSidebarMobile();
 }
 
-function currentChat(){
-  return chats.find(x=>x.id===current);
-}
-
-// -----------------------------
+// --------------------
 // RENDER HISTORY
-// -----------------------------
+// --------------------
 function renderHistory(){
+
   historyBox.innerHTML = "";
 
   chats.forEach(c=>{
@@ -106,14 +114,18 @@ function renderHistory(){
         <div class="history-title">${escapeHtml(c.title)}</div>
 
         <div class="history-actions">
-          <button class="icon-btn" onclick="openRename('${c.id}')">✏</button>
-          <button class="icon-btn" onclick="askDelete('${c.id}')">✕</button>
+          <button class="icon-btn"
+          onclick="openRename('${c.id}')">✏</button>
+
+          <button class="icon-btn"
+          onclick="askDelete('${c.id}')">✕</button>
         </div>
       </div>
     `;
 
     item.onclick = (e)=>{
-      if(e.target.tagName === "BUTTON") return;
+      if(e.target.tagName==="BUTTON") return;
+
       current = c.id;
       saveData();
       renderChat();
@@ -121,13 +133,16 @@ function renderHistory(){
     };
 
     historyBox.appendChild(item);
+
   });
+
 }
 
-// -----------------------------
+// --------------------
 // RENDER CHAT
-// -----------------------------
+// --------------------
 function renderChat(){
+
   chatBox.innerHTML = "";
 
   const c = currentChat();
@@ -143,186 +158,132 @@ function renderChat(){
   }
 
   c.msg.forEach(m=>{
-    if(m.type === "image"){
-      addImageBubble(m.url,false);
+
+    if(m.type==="image"){
+      bubbleImage(m.url,m.role,false);
     }else{
-      addBubble(m.role,m.text,false);
+      bubble(m.text,m.role,false);
     }
+
   });
 
   scrollBottom();
 }
 
-// -----------------------------
-// BUBBLE
-// -----------------------------
-function addBubble(role,text,save=true){
+// --------------------
+// MESSAGE BUBBLE
+// --------------------
+function bubble(text,role,save=true){
 
   const wrap = document.createElement("div");
-  wrap.className = "msg " + role;
+  wrap.className = role==="user" ? "user-row":"bot-row";
 
-  const bubble = document.createElement("div");
-  bubble.className = "bubble";
+  const box = document.createElement("div");
+  box.className = role==="user" ? "user-bubble":"bot-bubble";
 
-  wrap.appendChild(bubble);
+  wrap.appendChild(box);
   chatBox.appendChild(wrap);
-
-  if(role === "bot"){
-    typeWriter(bubble,text);
-  }else{
-    bubble.textContent = text;
-  }
-
-  if(save){
-    const c = currentChat();
-    c.msg.push({
-      role,text,type:"text"
-    });
-
-    if(c.msg.length === 1){
-      c.title = smartTitle(text);
-      renderHistory();
-    }
-
-    saveData();
-  }
-
-  scrollBottom();
-}
-
-function addImageBubble(url,save=true){
-
-  const wrap = document.createElement("div");
-  wrap.className = "msg bot";
-
-  const bubble = document.createElement("div");
-  bubble.className = "bubble";
-
-  bubble.innerHTML = `
-    <div>✅ Image Created</div>
-    <img src="${url}">
-  `;
-
-  wrap.appendChild(bubble);
-  chatBox.appendChild(wrap);
-
-  if(save){
-    const c = currentChat();
-    c.msg.push({
-      type:"image",
-      url
-    });
-    saveData();
-  }
-
-  scrollBottom();
-}
-
-// -----------------------------
-// TYPE WRITER
-// -----------------------------
-function typeWriter(el,text){
 
   let i = 0;
-  isTyping = true;
 
-  const cursor = document.createElement("span");
-  cursor.textContent = " ●";
-  cursor.style.opacity = ".7";
-  el.appendChild(cursor);
-
-  function step(){
-
+  function type(){
     if(i < text.length){
-      cursor.remove();
-
-      el.textContent += text[i];
+      box.innerHTML += escapeHtml(text[i]);
       i++;
-
-      el.appendChild(cursor);
       scrollBottom();
-
-      setTimeout(step,16);
-    }else{
-      cursor.remove();
-      isTyping = false;
+      setTimeout(type,12);
     }
   }
 
-  step();
+  type();
+
+  if(save){
+    const c = currentChat();
+    if(!c) return;
+
+    c.msg.push({
+      role,
+      text,
+      type:"text"
+    });
+
+    if(c.msg.length===1){
+      c.title = smartTitle(text);
+    }
+
+    saveData();
+    renderHistory();
+  }
 }
 
-// -----------------------------
-// THINKING
-// -----------------------------
-function thinkingBubble(mode="think"){
+function bubbleImage(url,role="bot",save=true){
 
   const wrap = document.createElement("div");
-  wrap.className = "msg bot";
+  wrap.className = role==="user" ? "user-row":"bot-row";
 
-  const bubble = document.createElement("div");
-  bubble.className = "bubble";
+  const box = document.createElement("div");
+  box.className = role==="user" ? "user-bubble":"bot-bubble";
 
-  if(mode==="image"){
-    bubble.innerHTML = `
-      <div class="typing">
-        <span>🎨 Creating Image...</span>
-      </div>
-    `;
-  }else{
-    bubble.innerHTML = `
-      <div class="typing">
-        <span class="dot"></span>
-        <span class="dot"></span>
-        <span class="dot"></span>
-      </div>
-    `;
-  }
+  box.innerHTML = `
+    <img src="${url}" class="chat-img">
+  `;
 
-  wrap.appendChild(bubble);
+  wrap.appendChild(box);
   chatBox.appendChild(wrap);
 
-  scrollBottom();
+  if(save){
+    const c = currentChat();
+    c.msg.push({
+      role,
+      url,
+      type:"image"
+    });
+    saveData();
+  }
 
-  return wrap;
+  scrollBottom();
 }
 
-// -----------------------------
-// SEND
-// -----------------------------
+// --------------------
+// SEND MESSAGE
+// --------------------
 form.onsubmit = async(e)=>{
   e.preventDefault();
-
-  if(isTyping) return;
 
   let msg = input.value.trim();
 
   if(!msg && !selectedFile) return;
 
-  // auto new chat if no current
   if(!current){
     newChat();
   }
 
-  // user bubble
   if(msg){
-    addBubble("user",msg,true);
+    bubble(msg,"user",true);
   }
 
-  // preview sent file
   if(selectedFile){
-    addBubble("user","📎 File uploaded",true);
+
+    const url = URL.createObjectURL(selectedFile);
+    bubbleImage(url,"user",true);
+
   }
 
   input.value = "";
-  autoResize();
-  clearPreview();
+  input.style.height = "auto";
 
-  let imageMode = detectImagePrompt(msg);
+  previewBox.innerHTML = "";
 
-  let loader = thinkingBubble(
-    imageMode ? "image" : "think"
-  );
+  const thinking = document.createElement("div");
+  thinking.className = "bot-row";
+  thinking.innerHTML = `
+    <div class="bot-bubble thinking">
+      NeuroMV is thinking<span class="dots">...</span>
+    </div>
+  `;
+
+  chatBox.appendChild(thinking);
+  scrollBottom();
 
   try{
 
@@ -343,61 +304,63 @@ form.onsubmit = async(e)=>{
 
     const data = await res.json();
 
-    if(imageMode){
+    thinking.remove();
+
+    if(data.type==="image"){
+
+      const loading = document.createElement("div");
+      loading.className = "bot-row";
+      loading.innerHTML = `
+        <div class="bot-bubble">
+          🎨 Creating Image...
+        </div>
+      `;
+
+      chatBox.appendChild(loading);
+      scrollBottom();
+
       setTimeout(()=>{
-        loader.remove();
-
-        if(data.type==="image"){
-          addImageBubble(data.url,true);
-        }else{
-          addBubble("bot",data.reply || "Failed to generate image.",true);
-        }
-
+        loading.remove();
+        bubble("✅ Image Created","bot",false);
+        bubbleImage(data.url,"bot",true);
       },10000);
 
     }else{
-
-      loader.remove();
-
-      addBubble(
-        "bot",
-        data.reply || "NeuroMV encountered an error.",
-        true
-      );
+      bubble(data.reply || "No response","bot",true);
     }
 
   }catch(err){
 
-    loader.remove();
+    thinking.remove();
+    bubble("NeuroMV encountered an error.","bot",true);
 
-    addBubble(
-      "bot",
-      "Network error. Please try again.",
-      true
-    );
   }
+
 };
 
-// -----------------------------
-// DETECT IMAGE PROMPT
-// -----------------------------
-function detectImagePrompt(t){
+// --------------------
+// ENTER SEND
+// --------------------
+input.addEventListener("keydown",(e)=>{
 
-  t = t.toLowerCase();
+  if(e.key==="Enter" && !e.shiftKey){
+    e.preventDefault();
+    form.requestSubmit();
+  }
 
-  const words = [
-    "image","gambar","foto","draw","anime",
-    "generate","create image","wallpaper",
-    "logo","art","painting","render",
-    "portrait","landscape","3d"
-  ];
+});
 
-  return words.some(w=>t.includes(w));
-}
+// --------------------
+// AUTO HEIGHT
+// --------------------
+input.addEventListener("input",()=>{
+  input.style.height = "auto";
+  input.style.height = input.scrollHeight + "px";
+});
 
-// -----------------------------
-// FILE
-// -----------------------------
+// --------------------
+// FILE PREVIEW
+// --------------------
 fileInput.onchange = ()=>{
 
   const f = fileInput.files[0];
@@ -409,44 +372,27 @@ fileInput.onchange = ()=>{
 
   previewBox.innerHTML = `
     <div class="preview-card">
-      <img src="${url}">
-      <button class="preview-remove" onclick="clearPreview()">✕</button>
+      <img src="${url}" class="preview-img">
+
+      <button class="remove-preview"
+      onclick="removeFile()">✕</button>
     </div>
   `;
+
 };
 
-function clearPreview(){
+function removeFile(){
   selectedFile = null;
   fileInput.value = "";
   previewBox.innerHTML = "";
 }
 
-// -----------------------------
-// ENTER SEND
-// -----------------------------
-input.addEventListener("keydown",(e)=>{
-  if(e.key==="Enter" && !e.shiftKey){
-    e.preventDefault();
-    form.requestSubmit();
-  }
-});
-
-function autoResize(){
-  input.style.height="auto";
-  input.style.height=input.scrollHeight+"px";
-}
-
-input.addEventListener("input",autoResize);
-
-// -----------------------------
+// --------------------
 // RENAME
-// -----------------------------
+// --------------------
 function openRename(id){
   renameTarget = id;
   renameModal.classList.remove("hidden");
-
-  const c = chats.find(x=>x.id===id);
-  renameInput.value = c?.title || "";
 }
 
 function closeRename(){
@@ -455,19 +401,20 @@ function closeRename(){
 
 function saveRename(){
 
+  const val = renameInput.value.trim();
+  if(!val) return;
+
   const c = chats.find(x=>x.id===renameTarget);
-  if(c){
-    c.title = renameInput.value.trim() || "Untitled";
-  }
+  if(c) c.title = val;
 
   saveData();
   renderHistory();
   closeRename();
 }
 
-// -----------------------------
+// --------------------
 // DELETE
-// -----------------------------
+// --------------------
 function askDelete(id){
   deleteTarget = id;
   deleteModal.classList.remove("hidden");
@@ -481,7 +428,7 @@ function confirmDelete(){
 
   chats = chats.filter(x=>x.id!==deleteTarget);
 
-  if(current === deleteTarget){
+  if(current===deleteTarget){
     current = chats[0]?.id || null;
   }
 
@@ -491,140 +438,71 @@ function confirmDelete(){
   closeDelete();
 }
 
-// -----------------------------
+// --------------------
 // PRIVATE
-// -----------------------------
-async function openPrivate(){
+// --------------------
+function openPrivate(){
+  alert("Private Mode Ready 🔒");
+}
 
-  const res = await fetch("/check_unlock");
-  const data = await res.json();
+// --------------------
+// SIDEBAR
+// --------------------
+function toggleSidebar(){
 
-  if(!data.unlocked){
-    pinModal.classList.remove("hidden");
-    return;
+  if(sidebar.classList.contains("show")){
+    closeSidebarMobile();
+  }else{
+    sidebar.classList.add("show");
+    overlay.classList.remove("hidden");
   }
 
-  if(privateChats.length===0){
-    alert("No private chats.");
-    return;
+}
+
+function closeSidebarMobile(){
+  sidebar.classList.remove("show");
+  overlay.classList.add("hidden");
+}
+
+// swipe
+let startX = 0;
+
+sidebar.addEventListener("touchstart",(e)=>{
+  startX = e.changedTouches[0].screenX;
+});
+
+sidebar.addEventListener("touchend",(e)=>{
+  let endX = e.changedTouches[0].screenX;
+
+  if(startX - endX > 70){
+    closeSidebarMobile();
   }
+});
 
-  chats = privateChats.concat(chats);
-  privateChats = [];
+// --------------------
+// MORE MENU
+// --------------------
+function toggleMoreMenu(){
+  moreMenu.classList.toggle("hidden");
+}
 
-  saveData();
-  renderHistory();
+// --------------------
+// PIN
+// --------------------
+function submitPin(){
+  pinModal.classList.add("hidden");
 }
 
 function closePin(){
   pinModal.classList.add("hidden");
 }
 
-async function submitPin(){
-
-  const pin = pinInput.value.trim();
-
-  if(!pin) return;
-
-  const res = await fetch("/verify_pin",{
-    method:"POST",
-    headers:{
-      "Content-Type":"application/json"
-    },
-    body:JSON.stringify({pin})
-  });
-
-  const data = await res.json();
-
-  if(data.ok){
-    closePin();
-    openPrivate();
-  }else{
-    alert("Wrong PIN");
-  }
+function setPinPrompt(){
+  pinModal.classList.remove("hidden");
 }
 
-async function setPinPrompt(){
-
-  const pin = prompt("Create PIN:");
-
-  if(!pin) return;
-
-  await fetch("/set_pin",{
-    method:"POST",
-    headers:{
-      "Content-Type":"application/json"
-    },
-    body:JSON.stringify({pin})
-  });
-
-  alert("PIN saved.");
-}
-
-// -----------------------------
-// SIDEBAR
-// -----------------------------
-function toggleSidebar(){
-
-  const overlay = document.getElementById("overlay");
-
-  if(sidebar.classList.contains("show")){
-    sidebar.classList.remove("show");
-    overlay.classList.add("hidden");
-  }else{
-    sidebar.classList.add("show");
-    overlay.classList.remove("hidden");
-}
-
-function closeSidebarMobile(){
-
-  const overlay = document.getElementById("overlay");
-
-  sidebar.classList.remove("show");
-
-  if(overlay){
-    overlay.classList.add("hidden");
-  }
-}
-
-// -----------------------------
-// MENU
-// -----------------------------
-function toggleMoreMenu(){
-  moreMenu.classList.toggle("hidden");
-}
-
-// -----------------------------
-// SAFE HTML
-// -----------------------------
-function escapeHtml(text){
-  return text
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;");
-}
-
-// -----------------------------
+// --------------------
 // INIT
-// -----------------------------
+// --------------------
 renderHistory();
 renderChat();
-
-
-// =====================
-// MOBILE SWIPE CLOSE
-// =====================
-let startX = 0;
-let endX = 0;
-
-sidebar.addEventListener("touchstart", (e)=>{
-  startX = e.changedTouches[0].screenX;
-});
-
-sidebar.addEventListener("touchend", (e)=>{
-  endX = e.changedTouches[0].screenX;
-
-  if(startX - endX > 70){
-    closeSidebarMobile();
-  }
-});
