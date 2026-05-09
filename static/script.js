@@ -515,8 +515,41 @@ function closePin(){
 // ======================
 // MORE MENU
 // ======================
-function toggleMoreMenu(){
-  moreMenu.classList.toggle("hidden");
+function toggleMoreMenu(btn = null){
+
+  const menu = document.getElementById("moreMenu");
+  if(!menu) return;
+
+  const isHidden = menu.classList.contains("hidden");
+
+  // tutup dulu semua mini menu lain
+  closeMiniMenus();
+
+  if(!isHidden){
+    menu.classList.add("hidden");
+    return;
+  }
+
+  menu.classList.remove("hidden");
+
+  // kalau dipencet dari tombol kanan atas mobile
+  if(btn){
+    const rect = btn.getBoundingClientRect();
+
+    menu.style.position = "fixed";
+    menu.style.top = (rect.bottom + 8) + "px";
+    menu.style.right = "10px";
+    menu.style.bottom = "auto";
+    menu.style.left = "auto";
+    menu.style.zIndex = "9999";
+  }else{
+    // default di sidebar bawah
+    menu.style.position = "absolute";
+    menu.style.bottom = "58px";
+    menu.style.right = "0";
+    menu.style.top = "auto";
+    menu.style.left = "auto";
+  }
 }
 
 // ======================
@@ -544,3 +577,15 @@ overlay.onclick = closeSidebarMobile;
 // ======================
 renderHistory();
 renderChat();
+
+document.addEventListener("click", function(e){
+
+  if(
+    !e.target.closest("#moreMenu") &&
+    !e.target.closest(".dots-btn") &&
+    !e.target.closest(".menu-btn")
+  ){
+    moreMenu.classList.add("hidden");
+  }
+
+});
