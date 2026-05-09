@@ -253,3 +253,49 @@ html,body{
   background:rgba(0,0,0,.45);
   z-index:30;
 }
+
+/* =========================
+   HOTFIX LAYOUT NEUROMV
+   ========================= */
+
+/* 1. FIX desktop layout spacing */
+@media(min-width:901px){
+  .main{
+    margin-left:290px;
+  }
+}
+
+/* 2. mobile topbar hanya mobile */
+@media(min-width:901px){
+  .mobile-topbar{
+    display:none !important;
+  }
+}
+
+/* 3. pastikan sidebar tidak overlap aneh */
+.sidebar{
+  z-index:20;
+}
+
+/* 4. overlay harus di atas sidebar */
+.overlay{
+  z-index:25;
+}
+
+/* 5. input jangan ganggu layout */
+.input-wrap{
+  z-index:30;
+}
+
+/* 6. fix double header / glitch spacing */
+.mobile-topbar{
+  position:sticky;
+  top:0;
+  z-index:15;
+  background:#0f1218;
+}
+
+/* 7. safety chat area */
+.chat-area{
+  overflow-y:auto;
+}
