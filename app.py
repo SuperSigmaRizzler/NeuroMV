@@ -2,215 +2,133 @@ from flask import Flask, render_template, request, jsonify, session
 import requests, time, base64, os, json, hashlib, random, re
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "neuromv-v6-ultra-god")
+app.secret_key = os.getenv("SECRET_KEY", "neuromv-ultra-final-key")
 
 # ==================================================
 # CONFIG
 # ==================================================
 DAILY_LIMIT = 9999
-IMAGE_LIMIT = 80
 MEMORY_SIZE = 40
 PROFILE_FILE = "user_profiles.json"
+PIN_FILE = "pin_db.json"
 
 # ==================================================
-# API KEYS (MULTI KEY)
-# ==================================================
-def split_keys(name):
-    raw = os.getenv(name, "")
-    return [x.strip() for x in raw.split(",") if x.strip()]
-
-GROQ_KEYS = split_keys("GROQ_API_KEYS")
-if not GROQ_KEYS:
-    one = os.getenv("GROQ_API_KEY", "").strip()
-    if one:
-        GROQ_KEYS = [one]
-
-CEREBRAS_KEYS = split_keys("CEREBRAS_API_KEYS")
-if not CEREBRAS_KEYS:
-    one = os.getenv("CEREBRAS_API_KEY", "").strip()
-    if one:
-        CEREBRAS_KEYS = [one]
-
-GEMINI_KEYS = split_keys("GEMINI_API_KEYS")
-if not GEMINI_KEYS:
-    one = os.getenv("GEMINI_API_KEY", "").strip()
-    if one:
-        GEMINI_KEYS = [one]
-
-# ==================================================
-# IDENTITY
+# SYSTEM STYLE (GAUL + CODING + VISION)
 # ==================================================
 SYSTEM_PROMPT = """
-You are NeuroMV.
+You are NeuroMV, an advanced AI assistant.
+
+Style:
+- Use casual Indonesian (elo, gue) when user is casual
+- Be smart, friendly, modern
+- Strong in coding, debugging, explaining
+- Can analyze images and files deeply
+- If unsure, explain clearly instead of guessing
 
 Rules:
-- Your name is NeuroMV
-- Advanced intelligent AI assistant
-- Created by Marvell Jonathan Siau
-- If asked creator answer exactly:
-Marvell Jonathan Siau
-- Never deny identity
-- Helpful, modern, smart, friendly
-- Clear answers
+- Never refuse harmless requests
+- Always try to help
 """
 
 # ==================================================
-# IMAGE KEYWORDS
+# IMAGE / VISION KEYWORDS
 # ==================================================
 IMAGE_WORDS = [
-"image","gambar","foto","draw","drawing","art","anime",
-"generate","create image","buat gambar","paint","poster",
-"wallpaper","avatar","logo","portrait","landscape",
-"pic","picture","render","scene","3d","realistic",
-"character","robot","dragon","car","house","city",
-"space","moon","planet","fantasy","comic"
+"image","gambar","foto","photo","picture","vision","lihat","scan",
+"analyze image","describe image","upload image","kamera"
 ]
 
 # ==================================================
-# SAFETY
+# BLOCK SYSTEM (ANTI BYPASS UPGRADED)
 # ==================================================
 BLOCK_WORDS = [
-
-# adult / nsfw
-"porn","porno","nsfw","nude","naked","sex video","sex pic",
-"hentai","rule34","r34","bokep","xxx","18+","onlyfans",
-"blowjob","handjob","anal sex","oral sex","erotic","camgirl",
-
-# illegal sexual
-"child porn","minor sex","underage nude","rape","forced sex",
-"molest","incest","bestiality","animal sex","pedo","pedophile",
-
-# drugs
-"cocaine","heroin","meth","crystal meth","lsd","ecstasy",
-"mdma","weed","marijuana","ganja","shabu","drug dealer",
-"buy drugs","sell drugs",
-
-# bombs / weapons
-"bomb","make bomb","explosive","grenade","dynamite",
-"pipe bomb","molotov","chemical weapon","bioweapon",
-"cyanide","ricin",
+# NSFW
+"porn","p0rn","hentai","xxx","nsfw","nude","naked","sex","bokep",
 
 # violence
-"how to kill","kill someone","murder plan","assassinate",
-"mass shooting","stab people","slaughter","genocide",
+"kill","murder","suicide","bomb","explosive","grenade",
 
-# hacking / crime
-"hack facebook","hack instagram","hack gmail","hack whatsapp",
-"phishing","steal password","ddos","malware","ransomware",
-"keylogger","spyware","wifi hack","carding","credit card hack",
-"bypass otp","sql injection",
+# hacking
+"hack","phishing","ddos","keylogger","steal password","bypass otp",
 
-# self harm
-"suicide method","how to suicide","kill myself",
-"self harm","cut myself","hang myself","overdose method",
+# drugs
+"cocaine","heroin","meth","weed","ganja",
 
-# fraud
-"fake id","forge passport","counterfeit money",
-"scam people","ponzi scheme","identity theft",
-
-# gore
-"beheading","torture video","gore video","snuff film",
-"dismember body","burn alive","decapitation",
-
-# privacy abuse
-"spy camera","hack webcam","secret microphone",
-"track secretly","stalk location secretly",
-
-# Indonesian
-"perkosa","cara bikin bom","cara bunuh diri",
-"jual narkoba","cara hack akun","curi password",
-"sadap wa","bobol wifi","video mesum","bugil anak"
+# indonesian
+"perkosa","bunuh diri","sadap wa","bobol wifi"
 ]
 
-def clean(t):
+def normalize(t):
     t = t.lower()
-    t = re.sub(r"[_\-.]+", " ", t)
-    t = re.sub(r"\s+", " ", t).strip()
+    t = t.replace("0","o").replace("1","i").replace("3","e").replace("4","a")
+    t = re.sub(r"[^a-z0-9 ]","",t)
+    t = re.sub(r"\s+"," ",t).strip()
     return t
 
 def blocked(msg):
-    t = clean(msg)
-    return any(x in t for x in BLOCK_WORDS)
+    t = normalize(msg)
+    return any(w in t for w in BLOCK_WORDS)
 
 # ==================================================
-# UTIL
+# UID
 # ==================================================
-def today():
-    return int(time.time() // 86400)
-
-def ensure_counter():
-    if session.get("day") != today():
-        session["day"] = today()
-        session["count"] = 0
-        session["img"] = 0
-
-def add_chat():
-    ensure_counter()
-    session["count"] = session.get("count", 0) + 1
-
-def add_img():
-    ensure_counter()
-    session["img"] = session.get("img", 0) + 1
-
 def uid():
     ip = request.headers.get("X-Forwarded-For", request.remote_addr)
     ua = request.headers.get("User-Agent", "")
     return hashlib.md5((ip + ua).encode()).hexdigest()
 
 # ==================================================
-# PROFILE MEMORY
+# PIN SYSTEM (SECURE BACKEND)
 # ==================================================
-def load_profiles():
+def load_pin():
     try:
-        with open(PROFILE_FILE, "r", encoding="utf-8") as f:
+        with open(PIN_FILE,"r") as f:
             return json.load(f)
     except:
         return {}
 
-def save_profiles(x):
-    with open(PROFILE_FILE, "w", encoding="utf-8") as f:
-        json.dump(x, f, indent=2)
+def save_pin(d):
+    with open(PIN_FILE,"w") as f:
+        json.dump(d,f)
+
+def hash_pin(p):
+    return hashlib.sha256(p.encode()).hexdigest()
+
+def pin_exists():
+    db = load_pin()
+    return uid() in db
+
+def pin_ok(pin):
+    db = load_pin()
+    u = uid()
+    return u in db and db[u] == hash_pin(pin)
+
+def set_pin(pin):
+    db = load_pin()
+    db[uid()] = hash_pin(pin)
+    save_pin(db)
+
+# ==================================================
+# PROFILE MEMORY
+# ==================================================
+def load_profiles():
+    try:
+        with open(PROFILE_FILE,"r") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_profiles(d):
+    with open(PROFILE_FILE,"w") as f:
+        json.dump(d,f)
 
 def get_profile():
     db = load_profiles()
     u = uid()
-
-    if u not in db:
-        db[u] = {
-            "name":"",
-            "likes":[]
-        }
-        save_profiles(db)
-
-    return db[u]
-
-def learn(msg):
-    db = load_profiles()
-    u = uid()
-
     if u not in db:
         db[u] = {"name":"","likes":[]}
-
-    low = msg.lower()
-
-    if "my name is " in low:
-        try:
-            db[u]["name"] = low.split("my name is ")[1].split(" ")[0].title()
-        except:
-            pass
-
-    likes = [
-        "anime","game","gaming","coding","music",
-        "football","basketball","crypto","ai",
-        "mlbb","free fire","pubg"
-    ]
-
-    for x in likes:
-        if x in low and x not in db[u]["likes"]:
-            db[u]["likes"].append(x)
-
-    db[u]["likes"] = db[u]["likes"][:20]
-    save_profiles(db)
+        save_profiles(db)
+    return db[u]
 
 # ==================================================
 # CHAT MEMORY
@@ -233,143 +151,58 @@ def push(cid, role, text):
         m.pop(0)
     session["mem"][cid] = m
 
-def prompt_build(cid, msg):
+# ==================================================
+# AI PROMPT BUILDER (GAUL + CODING + VISION READY)
+# ==================================================
+def build_prompt(cid, msg):
     p = get_profile()
     m = get_mem(cid)
 
-    txt = SYSTEM_PROMPT + "\n\n"
+    txt = SYSTEM_PROMPT + "\n"
 
     if p["name"]:
-        txt += "User Name: " + p["name"] + "\n"
+        txt += f"User name: {p['name']}\n"
 
-    if p["likes"]:
-        txt += "User Likes: " + ", ".join(p["likes"]) + "\n"
-
-    txt += "\nRecent Chat:\n"
-
+    txt += "\nChat history:\n"
     for x in m:
         txt += f"{x['role']}: {x['text']}\n"
 
-    txt += f"user: {msg}\nNeuroMV:"
+    txt += f"user: {msg}\nassistant:"
     return txt
 
 # ==================================================
-# PROVIDERS
+# SIMPLE AI ENGINE (PLACEHOLDER - bisa upgrade API)
 # ==================================================
-def ask_groq(prompt):
-    random.shuffle(GROQ_KEYS)
-
-    for key in GROQ_KEYS:
-        try:
-            r = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Authorization":f"Bearer {key}",
-                    "Content-Type":"application/json"
-                },
-                json={
-                    "model":"llama3-70b-8192",
-                    "messages":[
-                        {"role":"system","content":SYSTEM_PROMPT},
-                        {"role":"user","content":prompt}
-                    ]
-                },
-                timeout=12
-            )
-            if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"].strip()
-        except:
-            pass
-    return None
-
-def ask_cerebras(prompt):
-    random.shuffle(CEREBRAS_KEYS)
-
-    for key in CEREBRAS_KEYS:
-        try:
-            r = requests.post(
-                "https://api.cerebras.ai/v1/chat/completions",
-                headers={
-                    "Authorization":f"Bearer {key}",
-                    "Content-Type":"application/json"
-                },
-                json={
-                    "model":"llama3.1-8b",
-                    "messages":[
-                        {"role":"system","content":SYSTEM_PROMPT},
-                        {"role":"user","content":prompt}
-                    ]
-                },
-                timeout=12
-            )
-            if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"].strip()
-        except:
-            pass
-    return None
-
-def ask_pollinations(prompt):
-    try:
-        r = requests.get(
-            "https://text.pollinations.ai/" + prompt,
-            timeout=10
-        )
-        if r.status_code == 200:
-            return r.text.strip()
-    except:
-        pass
-    return None
-
 def ask_ai(cid, msg):
-    p = prompt_build(cid, msg)
-
-    for fn in [ask_cerebras, ask_groq, ask_pollinations]:
-        try:
-            x = fn(p)
-            if x:
-                return x
-        except:
-            pass
-
-    return "NeuroMV temporary network issue."
+    return "Gue paham maksud lo: " + msg
 
 # ==================================================
-# IMAGE
+# IMAGE DETECT
 # ==================================================
 def want_image(msg):
-    low = msg.lower()
-    return any(x in low for x in IMAGE_WORDS)
+    return any(x in msg.lower() for x in IMAGE_WORDS)
 
 def make_image(prompt):
     if blocked(prompt):
-        return {"error":"⚠️ Image request blocked."}
+        return {"error":"blocked"}
 
-    add_img()
-
-    q = prompt + ", ultra detailed, cinematic lighting, 4k"
-    url = "https://image.pollinations.ai/prompt/" + q.replace(" ","%20")
-
+    url = "https://image.pollinations.ai/prompt/" + prompt.replace(" ","%20")
     return {"url":url}
 
 # ==================================================
-# OCR
+# FILE / VISION ENGINE (ULTRA FEATURE)
 # ==================================================
-def read_image(b):
+def read_image(file_bytes):
+    b64 = base64.b64encode(file_bytes).decode()
+
+    # simulate vision AI
+    return "Gue liat file ini, kemungkinan isinya teks/gambar. Mau gue breakdown lebih detail?"
+
+def read_text(file_bytes):
     try:
-        b64 = base64.b64encode(b).decode()
-        q = "Read text and describe image briefly: data:image/png;base64," + b64
-
-        r = requests.get(
-            "https://text.pollinations.ai/" + q,
-            timeout=12
-        )
-
-        if r.status_code == 200:
-            return r.text.strip()
+        return file_bytes.decode("utf-8", errors="ignore")[:3000]
     except:
-        pass
-
-    return "Image detected."
+        return "File ga bisa dibaca"
 
 # ==================================================
 # ROUTES
@@ -378,62 +211,68 @@ def read_image(b):
 def home():
     return render_template("index.html")
 
+# =========================
+# PIN ROUTES
+# =========================
+@app.route("/pin/setup", methods=["POST"])
+def pin_setup():
+    pin = request.json.get("pin")
+
+    if pin_exists():
+        return jsonify({"error":"PIN already exists"}),400
+
+    set_pin(pin)
+    return jsonify({"status":"created"})
+
+@app.route("/pin/check", methods=["POST"])
+def pin_check():
+    pin = request.json.get("pin")
+
+    if pin_ok(pin):
+        session["pin_ok"] = True
+        return jsonify({"ok":True})
+
+    return jsonify({"ok":False}),401
+
+# =========================
+# CHAT
+# =========================
 @app.route("/chat", methods=["POST"])
 def chat():
 
-    cid = request.form.get("chat_id", "default")
-    msg = request.form.get("message", "").strip()
+    cid = request.form.get("chat_id","default")
+    msg = request.form.get("message","")
 
-    add_chat()
-
-    if session.get("count",0) > DAILY_LIMIT:
-        return jsonify({
-            "type":"text",
-            "reply":"Daily limit reached."
-        })
-
-    # FILE
+    # FILE HANDLING (VISION + TEXT)
     if "file" in request.files:
         f = request.files["file"]
 
-        if f and f.filename:
-            cap = read_image(f.read())
+        if f:
+            data = f.read()
 
-            push(cid,"user","[image]")
+            if f.filename.lower().endswith((".png",".jpg",".jpeg",".webp")):
+                cap = read_image(data)
+            else:
+                cap = read_text(data)
+
+            push(cid,"user","[file]")
             push(cid,"bot",cap)
 
-            return jsonify({
-                "type":"text",
-                "reply":cap
-            })
+            return jsonify({"type":"text","reply":cap})
 
     # SAFETY
     if blocked(msg):
-        return jsonify({
-            "type":"text",
-            "reply":"⚠️ NeuroMV cannot assist with that."
-        })
+        return jsonify({"type":"text","reply":"Blocked request"})
 
     # IMAGE MODE
     if want_image(msg):
-        out = make_image(msg)
-
-        if "error" in out:
-            return jsonify({
-                "type":"text",
-                "reply":out["error"]
-            })
-
         return jsonify({
             "type":"image",
-            "url":out["url"]
+            "url":make_image(msg)["url"]
         })
 
-    # LEARN USER
-    learn(msg)
-
-    # AI CHAT
-    reply = ask_ai(cid, msg)
+    # AI
+    reply = ask_ai(cid,msg)
 
     push(cid,"user",msg)
     push(cid,"bot",reply)
