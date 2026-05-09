@@ -460,7 +460,20 @@ function movePrivate(id){
 }
 
 function openPrivate(){
-  alert("Private Chats: " + privateChats.length);
+
+  const pin = localStorage.getItem("neuromv_pin");
+
+  // kalau belum ada PIN
+  if(!pin){
+    alert("No PIN set yet!");
+    return;
+  }
+
+  // buka modal PIN
+  setPinPrompt();
+
+  // tandai mode private open (optional tapi berguna nanti)
+  pinModal.dataset.mode = "openPrivate";
 }
 
 // ======================
@@ -589,3 +602,18 @@ document.addEventListener("click", function(e){
   }
 
 });
+
+if(pinStep === 2){
+  localStorage.setItem("neuromv_pin",val);
+  alert("PIN Updated");
+  closePin();
+  return;
+}
+
+// 🔓 AFTER PIN CHECK SUCCESS (OPEN PRIVATE CHAT)
+if(pinModal.dataset.mode === "openPrivate"){
+  pinModal.dataset.mode = "";
+  closePin();
+
+  alert("Private Chats: " + privateChats.length);
+}
