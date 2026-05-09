@@ -1,5 +1,6 @@
-// static/script.js
-// NEUROMV ULTRA FINAL STABLE VERSION
+// =========================
+// NEUROMV FINAL STABLE
+// =========================
 
 let chats = JSON.parse(localStorage.getItem("neuromv_chats") || "[]");
 let privateChats = JSON.parse(localStorage.getItem("neuromv_private") || "[]");
@@ -8,22 +9,20 @@ let current = localStorage.getItem("neuromv_current") || null;
 let renameTarget = null;
 let deleteTarget = null;
 let selectedFile = null;
-let pinStep = 0;
+let pinMode = "create";
 
-// ======================
+// =========================
 // ELEMENTS
-// ======================
+// =========================
 const chatBox = document.getElementById("chat");
 const historyBox = document.getElementById("history");
-const input = document.getElementById("input");
 const form = document.getElementById("form");
+const input = document.getElementById("input");
 const fileInput = document.getElementById("file");
-const previewBox = document.getElementById("preview");
+const preview = document.getElementById("preview");
 
 const sidebar = document.getElementById("sidebar");
 const overlay = document.getElementById("overlay");
-
-const moreMenu = document.getElementById("moreMenu");
 
 const renameModal = document.getElementById("renameModal");
 const renameInput = document.getElementById("renameInput");
@@ -34,140 +33,170 @@ const pinModal = document.getElementById("pinModal");
 const pinInput = document.getElementById("pinInput");
 const pinText = document.getElementById("pinText");
 
-// ======================
-// SAVE SYSTEM
-// ======================
-function saveData() {
+const moreMenu = document.getElementById("moreMenu");
+
+// =========================
+// SAVE
+// =========================
+function saveData(){
   localStorage.setItem("neuromv_chats", JSON.stringify(chats));
   localStorage.setItem("neuromv_private", JSON.stringify(privateChats));
   localStorage.setItem("neuromv_current", current || "");
 }
 
-// ======================
+// =========================
 // HELPERS
-// ======================
-function uid() {
-  return "c" + Date.now() + Math.floor(Math.random() * 9999);
+// =========================
+function uid(){
+  return "c" + Date.now() + Math.floor(Math.random()*9999);
 }
 
-function esc(t) {
+function esc(t){
   return String(t)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;");
 }
 
-function smartTitle(t) {
-  t = (t || "").trim();
-  return t ? (t.length > 28 ? t.slice(0, 28) + "..." : t) : "New Chat";
-}
-
-function scrollBottom() {
-  setTimeout(() => {
-    chatBox.scrollTop = chatBox.scrollHeight;
-  }, 50);
-}
-
-function currentChat() {
+function currentChat(){
   return chats.find(x => x.id === current);
 }
 
-// ======================
+function scrollBottom(){
+  setTimeout(()=>{
+    chatBox.scrollTop = chatBox.scrollHeight;
+  },50);
+}
+
+// =========================
 // NEW CHAT
-// ======================
-function newChat() {
+// =========================
+function newChat(){
+
   const c = {
     id: uid(),
     title: "New Chat",
     msg: [],
-    private: false
+    private:false
   };
 
   chats.unshift(c);
+
   current = c.id;
 
   saveData();
   renderHistory();
   renderChat();
-  closeSidebarMobile();
 }
 
-// ======================
-// HISTORY RENDER (FIXED)
-// ======================
-function renderHistory() {
+// =========================
+// HISTORY
+// =========================
+function renderHistory(){
+
   historyBox.innerHTML = "";
 
-  chats.forEach(c => {
-    const item = document.createElement("div");
-    item.className = "history-item";
+  chats.forEach(c=>{
 
-    item.innerHTML = `
+    const div = document.createElement("div");
+
+    div.className = "history-item";
+
+    div.innerHTML = `
       <div class="history-top">
+
         <div class="history-title">
           ${c.private ? "🔒 " : ""}
           ${esc(c.title)}
         </div>
 
-        <button class="icon-btn"
-          onclick="event.stopPropagation();toggleChatMenu('${c.id}',this)">
+        <button class="icon-btn">
           ⋮
         </button>
+
       </div>
     `;
 
-    item.onclick = () => {
+    div.onclick = ()=>{
       current = c.id;
       saveData();
       renderChat();
-      closeSidebarMobile();
     };
 
-    historyBox.appendChild(item);
+    const btn = div.querySelector(".icon-btn");
+
+    btn.onclick = (e)=>{
+      e.stopPropagation();
+      toggleMenu(c.id, btn);
+    };
+
+    historyBox.appendChild(div);
   });
 
   updatePrivateCount();
 }
 
-// ======================
-// MINI MENU
-// ======================
-function toggleChatMenu(id, btn) {
+// =========================
+// MENU
+// =========================
+function closeMenus(){
+  document.querySelectorAll(".mini-menu")
+    .forEach(x=>x.remove());
+}
+
+function toggleMenu(id, btn){
+
   const old = btn.parentElement.querySelector(".mini-menu");
-  closeMiniMenus();
-  if (old) return;
+
+  closeMenus();
+
+  if(old) return;
 
   const menu = document.createElement("div");
+
   menu.className = "mini-menu";
 
   menu.innerHTML = `
-    <button onclick="event.stopPropagation();openRename('${id}')">✏ Rename</button>
-    <button onclick="event.stopPropagation();movePrivate('${id}')">🔒 Private</button>
-    <button onclick="event.stopPropagation();askDelete('${id}')">🗑 Delete</button>
+    <button class="rename-btn">✏ Rename</button>
+    <button class="private-btn">🔒 Private</button>
+    <button class="delete-btn">🗑 Delete</button>
   `;
 
   btn.parentElement.appendChild(menu);
+
+  menu.querySelector(".rename-btn").onclick = (e)=>{
+    e.stopPropagation();
+    openRename(id);
+  };
+
+  menu.querySelector(".private-btn").onclick = (e)=>{
+    e.stopPropagation();
+    movePrivate(id);
+  };
+
+  menu.querySelector(".delete-btn").onclick = (e)=>{
+    e.stopPropagation();
+    askDelete(id);
+  };
 }
 
-function closeMiniMenus() {
-  document.querySelectorAll(".mini-menu").forEach(x => x.remove());
-}
-
-document.addEventListener("click", (e) => {
-  if (!e.target.closest(".icon-btn") && !e.target.closest(".mini-menu")) {
-    closeMiniMenus();
+document.addEventListener("click",(e)=>{
+  if(!e.target.closest(".mini-menu") &&
+     !e.target.closest(".icon-btn")){
+    closeMenus();
   }
 });
 
-// ======================
-// CHAT RENDER
-// ======================
-function renderChat() {
+// =========================
+// CHAT
+// =========================
+function renderChat(){
+
   chatBox.innerHTML = "";
 
   const c = currentChat();
 
-  if (!c) {
+  if(!c){
     chatBox.innerHTML = `
       <div class="welcome">
         <h2>NeuroMV</h2>
@@ -177,351 +206,516 @@ function renderChat() {
     return;
   }
 
-  c.msg.forEach(m => {
-    if (m.type === "image") {
+  c.msg.forEach(m=>{
+
+    if(m.type === "image"){
       bubbleImage(m.url, m.role, false);
-    } else {
+    }else{
       bubble(m.text, m.role, false, false);
     }
+
   });
 
   scrollBottom();
 }
 
-// ======================
-// TEXT BUBBLE
-// ======================
-function bubble(text, role = "bot", save = true, typing = true) {
+function bubble(text, role="bot", save=true, typing=true){
 
   const row = document.createElement("div");
-  row.className = role === "user" ? "user-row" : "bot-row";
+
+  row.className =
+    role === "user"
+      ? "user-row"
+      : "bot-row";
 
   const box = document.createElement("div");
-  box.className = role === "user" ? "user-bubble" : "bot-bubble";
+
+  box.className =
+    role === "user"
+      ? "user-bubble"
+      : "bot-bubble";
 
   row.appendChild(box);
+
   chatBox.appendChild(row);
 
-  if (typing && role === "bot") {
-    let i = 0;
+  if(typing && role==="bot"){
 
-    function type() {
-      if (i < text.length) {
+    let i=0;
+
+    function type(){
+
+      if(i<text.length){
+
         box.innerHTML += esc(text[i]);
+
         i++;
+
         scrollBottom();
-        setTimeout(type, 10);
+
+        setTimeout(type,10);
       }
     }
 
     type();
-  } else {
+
+  }else{
     box.innerText = text;
   }
 
-  if (save) {
+  if(save){
+
     const c = currentChat();
-    if (!c) return;
 
-    c.msg.push({ role, text, type: "text" });
+    if(c){
 
-    if (c.msg.length === 1 && role === "user") {
-      c.title = smartTitle(text);
+      c.msg.push({
+        role,
+        text,
+        type:"text"
+      });
+
+      if(c.msg.length===1 && role==="user"){
+        c.title = text.slice(0,30);
+      }
+
+      saveData();
+      renderHistory();
     }
-
-    saveData();
-    renderHistory();
   }
-
-  scrollBottom();
 }
 
-// ======================
-// IMAGE BUBBLE
-// ======================
-function bubbleImage(url, role = "bot", save = true) {
+// =========================
+// IMAGE
+// =========================
+function bubbleImage(url, role="bot", save=true){
 
   const row = document.createElement("div");
-  row.className = role === "user" ? "user-row" : "bot-row";
+
+  row.className =
+    role==="user"
+      ? "user-row"
+      : "bot-row";
 
   const box = document.createElement("div");
-  box.className = role === "user" ? "user-bubble" : "bot-bubble";
 
-  box.innerHTML = `<img src="${url}" class="chat-img">`;
+  box.className =
+    role==="user"
+      ? "user-bubble"
+      : "bot-bubble";
+
+  box.innerHTML = `
+    <img src="${url}" class="chat-img">
+  `;
 
   row.appendChild(box);
+
   chatBox.appendChild(row);
 
-  if (save) {
+  if(save){
+
     const c = currentChat();
-    if (c) {
-      c.msg.push({ role, url, type: "image" });
+
+    if(c){
+
+      c.msg.push({
+        role,
+        url,
+        type:"image"
+      });
+
       saveData();
     }
   }
-
-  scrollBottom();
 }
 
-// ======================
-// SEND MESSAGE
-// ======================
-form.addEventListener("submit", async (e) => {
+// =========================
+// SEND
+// =========================
+form.addEventListener("submit", async(e)=>{
+
   e.preventDefault();
 
   const msg = input.value.trim();
-  if (!msg && !selectedFile) return;
 
-  if (!current) newChat();
+  if(!msg && !selectedFile) return;
 
-  if (msg) bubble(msg, "user", true, false);
+  if(!current){
+    newChat();
+  }
 
-  if (selectedFile) {
-    bubbleImage(URL.createObjectURL(selectedFile), "user", true);
+  if(msg){
+    bubble(msg,"user",true,false);
   }
 
   input.value = "";
-  previewBox.innerHTML = "";
 
-  const loading = document.createElement("div");
-  loading.className = "bot-row";
-  loading.innerHTML = `<div class="bot-bubble">NeuroMV is thinking...</div>`;
-  chatBox.appendChild(loading);
+  const fd = new FormData();
 
-  scrollBottom();
+  fd.append("message", msg);
+  fd.append("chat_id", current);
 
-  try {
-    const fd = new FormData();
-    fd.append("message", msg);
-    fd.append("chat_id", current);
+  if(selectedFile){
+    fd.append("file", selectedFile);
+  }
 
-    if (selectedFile) fd.append("file", selectedFile);
-    selectedFile = null;
+  try{
 
-    const res = await fetch("/chat", { method: "POST", body: fd });
+    const res = await fetch("/chat",{
+      method:"POST",
+      body:fd
+    });
+
     const data = await res.json();
 
-    loading.remove();
-
-    if (data.type === "image") {
-      bubbleImage(data.url, "bot", true);
-    } else {
-      bubble(data.reply, "bot", true, true);
+    if(data.type==="image"){
+      bubbleImage(data.url);
+    }else{
+      bubble(data.reply || "No response");
     }
 
-  } catch (err) {
-    loading.remove();
-    bubble("Connection error.", "bot", true, false);
+  }catch{
+    bubble("Connection error.","bot",true,false);
   }
+
 });
 
-// ======================
-// FILE UPLOAD
-// ======================
-fileInput.addEventListener("change", () => {
-  const f = fileInput.files[0];
-  if (!f) return;
+// =========================
+// PRIVATE
+// =========================
+function movePrivate(id){
 
-  selectedFile = f;
+  const pin = localStorage.getItem("neuromv_pin");
 
-  previewBox.innerHTML = `
-    <div class="preview-card">📎 ${esc(f.name)}</div>
-  `;
-});
+  if(!pin){
 
-// ======================
-// INPUT AUTO HEIGHT
-// ======================
-input.addEventListener("input", () => {
-  input.style.height = "auto";
-  input.style.height = input.scrollHeight + "px";
-});
+    alert("Create PIN first");
 
-// ======================
-// ENTER SEND
-// ======================
-input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    form.requestSubmit();
+    setPinPrompt();
+
+    return;
   }
-});
 
-// ======================
-// PRIVATE SYSTEM (FIXED)
-// ======================
-function movePrivate(id) {
-  let c = chats.find(x => x.id === id);
-  if (!c) return;
+  const ask = prompt("Enter PIN");
 
-  c.private = true;
+  if(ask !== pin){
+    alert("Wrong PIN");
+    return;
+  }
 
-  privateChats.unshift(c);
-  chats = chats.filter(x => x.id !== id);
+  const index = chats.findIndex(
+    x => x.id === id
+  );
 
-  if (current === id) current = null;
+  if(index === -1) return;
+
+  const chat = chats[index];
+
+  chat.private = true;
+
+  privateChats.unshift(chat);
+
+  chats.splice(index,1);
+
+  if(current === id){
+    current = null;
+  }
 
   saveData();
+
   renderHistory();
   renderChat();
+  updatePrivateCount();
 }
 
-function openPrivate() {
+// OPEN PRIVATE LIST
+function openPrivate(){
+
+  const pin = localStorage.getItem("neuromv_pin");
+
+  if(!pin){
+    alert("No PIN set");
+    return;
+  }
+
+  const ask = prompt("Enter PIN");
+
+  if(ask !== pin){
+    alert("Wrong PIN");
+    return;
+  }
+
   historyBox.innerHTML = "";
 
-  if (!privateChats.length) {
-    historyBox.innerHTML = `<div class="empty-private">No private chats</div>`;
+  if(privateChats.length === 0){
+
+    historyBox.innerHTML = `
+      <div class="history-item">
+        No private chats
+      </div>
+    `;
+
     return;
   }
 
   privateChats.forEach(c => {
+
     const item = document.createElement("div");
+
     item.className = "history-item";
 
-    item.innerHTML = `🔒 ${esc(c.title)}`;
+    item.innerHTML = `
+      <div class="history-top">
 
-    item.onclick = () => {
+        <div class="history-title">
+          🔒 ${esc(c.title)}
+        </div>
+
+        <button class="icon-btn">
+          ⋮
+        </button>
+
+      </div>
+    `;
+
+    // OPEN CHAT
+    item.onclick = ()=>{
+
       current = c.id;
-      chats.unshift(c);
-      privateChats = privateChats.filter(x => x.id !== c.id);
 
-      saveData();
-      renderHistory();
-      renderChat();
+      renderPrivateChat(c);
+    };
+
+    // MENU
+    const btn = item.querySelector(".icon-btn");
+
+    btn.onclick = (e)=>{
+
+      e.stopPropagation();
+
+      togglePrivateMenu(c.id, btn);
     };
 
     historyBox.appendChild(item);
   });
 }
 
-// ======================
-// SIDEBAR
-// ======================
-function toggleSidebar() {
+// PRIVATE CHAT VIEW
+function renderPrivateChat(chat){
+
+  chatBox.innerHTML = "";
+
+  chat.msg.forEach(m=>{
+
+    if(m.type === "image"){
+      bubbleImage(m.url, m.role, false);
+    }else{
+      bubble(m.text, m.role, false, false);
+    }
+
+  });
+
+  scrollBottom();
+}
+
+// PRIVATE MENU
+function togglePrivateMenu(id, btn){
+
+  closeMenus();
+
+  const menu = document.createElement("div");
+
+  menu.className = "mini-menu";
+
+  menu.innerHTML = `
+    <button class="restore-btn">
+      🔓 Unprivate
+    </button>
+
+    <button class="delete-btn">
+      🗑 Delete
+    </button>
+  `;
+
+  btn.parentElement.appendChild(menu);
+
+  menu.querySelector(".restore-btn").onclick = (e)=>{
+
+    e.stopPropagation();
+
+    restorePrivate(id);
+  };
+
+  menu.querySelector(".delete-btn").onclick = (e)=>{
+
+    e.stopPropagation();
+
+    askDelete(id);
+  };
+}
+
+// RESTORE
+function restorePrivate(id){
+
+  const pin = localStorage.getItem("neuromv_pin");
+
+  const ask = prompt("Enter PIN");
+
+  if(ask !== pin){
+    alert("Wrong PIN");
+    return;
+  }
+
+  const index = privateChats.findIndex(
+    x => x.id === id
+  );
+
+  if(index === -1) return;
+
+  const chat = privateChats[index];
+
+  chat.private = false;
+
+  chats.unshift(chat);
+
+  privateChats.splice(index,1);
+
+  saveData();
+
+  renderHistory();
+  updatePrivateCount();
+}
+
+// =========================
+// PIN
+// =========================
+function setPinPrompt(){
+
+  pinModal.classList.remove("hidden");
+
+  pinInput.value = "";
+
+  pinText.innerText = "Create New PIN";
+}
+
+function submitPin(){
+
+  const val = pinInput.value.trim();
+
+  if(!val) return;
+
+  localStorage.setItem("neuromv_pin", val);
+
+  alert("PIN saved");
+
+  closePin();
+}
+
+function closePin(){
+  pinModal.classList.add("hidden");
+}
+
+// =========================
+// RENAME
+// =========================
+function openRename(id){
+
+  renameTarget = id;
+
+  renameModal.classList.remove("hidden");
+}
+
+function closeRename(){
+  renameModal.classList.add("hidden");
+}
+
+function saveRename(){
+
+  const val = renameInput.value.trim();
+
+  if(!val) return;
+
+  const c = chats.find(x=>x.id===renameTarget);
+
+  if(c){
+    c.title = val;
+  }
+
+  saveData();
+
+  renderHistory();
+
+  closeRename();
+}
+
+// =========================
+// DELETE
+// =========================
+function askDelete(id){
+
+  deleteTarget = id;
+
+  deleteModal.classList.remove("hidden");
+}
+
+function closeDelete(){
+  deleteModal.classList.add("hidden");
+}
+
+function confirmDelete(){
+
+  chats = chats.filter(x=>x.id!==deleteTarget);
+
+  privateChats = privateChats.filter(
+    x=>x.id!==deleteTarget
+  );
+
+  saveData();
+
+  renderHistory();
+  renderChat();
+
+  closeDelete();
+}
+
+// =========================
+// MOBILE
+// =========================
+function toggleSidebar(){
+
   sidebar.classList.toggle("show");
+
   overlay.classList.toggle("hidden");
 }
 
-function closeSidebarMobile() {
+function closeSidebarMobile(){
+
   sidebar.classList.remove("show");
+
   overlay.classList.add("hidden");
 }
 
-overlay.onclick = closeSidebarMobile;
+// =========================
+// MORE MENU
+// =========================
+function toggleMoreMenu(){
 
-// ======================
+  moreMenu.classList.toggle("hidden");
+}
+
+function updatePrivateCount(){
+
+  const el = document.querySelector(".private-chats");
+
+  if(el){
+    el.innerText =
+      `Private Chats: ${privateChats.length}`;
+  }
+}
+
+// =========================
 // INIT
-// ======================
+// =========================
 renderHistory();
 renderChat();
 updatePrivateCount();
-
-document.addEventListener("click", (e) => {
-  if (!e.target.closest("#moreMenu")) {
-    moreMenu.classList.add("hidden");
-  }
-});
-
-form.addEventListener("submit", async (e) => {
-
-  e.preventDefault();
-
-  const msg = input.value.trim();
-
-  if (!msg && !selectedFile) return;
-
-  // auto create new chat
-  if (!current) {
-    newChat();
-  }
-
-  // user bubble
-  if (msg) {
-    bubble(msg, "user", true, false);
-  }
-
-  // preview uploaded image
-  if (selectedFile && selectedFile.type.startsWith("image/")) {
-    bubbleImage(
-      URL.createObjectURL(selectedFile),
-      "user",
-      true
-    );
-  }
-
-  input.value = "";
-  input.style.height = "auto";
-
-  previewBox.innerHTML = "";
-
-  // thinking bubble
-  const think = document.createElement("div");
-
-  think.className = "bot-row";
-
-  think.innerHTML = `
-    <div class="bot-bubble">
-      NeuroMV is thinking...
-    </div>
-  `;
-
-  chatBox.appendChild(think);
-
-  scrollBottom();
-
-  try {
-
-    const fd = new FormData();
-
-    fd.append("message", msg || "");
-    fd.append("chat_id", current);
-
-    if (selectedFile) {
-      fd.append("file", selectedFile);
-    }
-
-    selectedFile = null;
-
-    const res = await fetch("/chat", {
-      method: "POST",
-      body: fd
-    });
-
-    // detect server crash
-    if (!res.ok) {
-      throw new Error("Server error");
-    }
-
-    const data = await res.json();
-
-    think.remove();
-
-    // image response
-    if (data.type === "image") {
-
-      bubbleImage(data.url, "bot", true);
-
-    } else {
-
-      bubble(
-        data.reply || "No response.",
-        "bot",
-        true,
-        true
-      );
-    }
-
-  } catch (err) {
-
-    think.remove();
-
-    console.error(err);
-
-    bubble(
-      "NeuroMV connection error.",
-      "bot",
-      true,
-      false
-    );
-  }
-});
