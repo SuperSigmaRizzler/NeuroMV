@@ -421,3 +421,107 @@ document.addEventListener("click", (e) => {
     moreMenu.classList.add("hidden");
   }
 });
+
+form.addEventListener("submit", async (e) => {
+
+  e.preventDefault();
+
+  const msg = input.value.trim();
+
+  if (!msg && !selectedFile) return;
+
+  // auto create new chat
+  if (!current) {
+    newChat();
+  }
+
+  // user bubble
+  if (msg) {
+    bubble(msg, "user", true, false);
+  }
+
+  // preview uploaded image
+  if (selectedFile && selectedFile.type.startsWith("image/")) {
+    bubbleImage(
+      URL.createObjectURL(selectedFile),
+      "user",
+      true
+    );
+  }
+
+  input.value = "";
+  input.style.height = "auto";
+
+  previewBox.innerHTML = "";
+
+  // thinking bubble
+  const think = document.createElement("div");
+
+  think.className = "bot-row";
+
+  think.innerHTML = `
+    <div class="bot-bubble">
+      NeuroMV is thinking...
+    </div>
+  `;
+
+  chatBox.appendChild(think);
+
+  scrollBottom();
+
+  try {
+
+    const fd = new FormData();
+
+    fd.append("message", msg || "");
+    fd.append("chat_id", current);
+
+    if (selectedFile) {
+      fd.append("file", selectedFile);
+    }
+
+    selectedFile = null;
+
+    const res = await fetch("/chat", {
+      method: "POST",
+      body: fd
+    });
+
+    // detect server crash
+    if (!res.ok) {
+      throw new Error("Server error");
+    }
+
+    const data = await res.json();
+
+    think.remove();
+
+    // image response
+    if (data.type === "image") {
+
+      bubbleImage(data.url, "bot", true);
+
+    } else {
+
+      bubble(
+        data.reply || "No response.",
+        "bot",
+        true,
+        true
+      );
+    }
+
+  } catch (err) {
+
+    think.remove();
+
+    console.error(err);
+
+    bubble(
+      "NeuroMV connection error.",
+      "bot",
+      true,
+      false
+    );
+  }
+});
