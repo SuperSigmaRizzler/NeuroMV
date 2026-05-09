@@ -171,12 +171,6 @@ def build_prompt(cid, msg):
     return txt
 
 # ==================================================
-# SIMPLE AI ENGINE (PLACEHOLDER - bisa upgrade API)
-# ==================================================
-def ask_ai(cid, msg):
-    return "Gue paham maksud lo: " + msg
-
-# ==================================================
 # IMAGE DETECT
 # ==================================================
 def want_image(msg):
@@ -196,13 +190,13 @@ def read_image(file_bytes):
     b64 = base64.b64encode(file_bytes).decode()
 
     # simulate vision AI
-    return "Gue liat file ini, kemungkinan isinya teks/gambar. Mau gue breakdown lebih detail?"
+    return "Alright I received the file, want me to break it down more specifically?"
 
 def read_text(file_bytes):
     try:
         return file_bytes.decode("utf-8", errors="ignore")[:3000]
     except:
-        return "File ga bisa dibaca"
+        return "Cannot read file"
 
 # ==================================================
 # ROUTES
