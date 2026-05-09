@@ -403,3 +403,139 @@ html,body{
 }
 
 }
+
+/* ===== PATCH TITAN FIX ===== */
+/* tempel di PALING BAWAH static/style.css */
+
+/* 1. history menu bisa diklik */
+.history-list{
+  flex:1;
+  overflow:auto;
+  overflow-x:hidden;
+}
+
+.history-item{
+  position:relative;
+  overflow:visible;
+}
+
+.history-top{
+  position:relative;
+  overflow:visible;
+}
+
+.history-actions{
+  position:relative;
+  overflow:visible;
+  flex-shrink:0;
+}
+
+/* 2. titik tiga lebih bagus */
+.icon-btn{
+  width:34px;
+  height:34px;
+  border:none;
+  background:transparent;
+  color:#cfd6e6;
+  font-size:18px;
+  border-radius:10px;
+  cursor:pointer;
+}
+
+.icon-btn:hover{
+  background:#232838;
+}
+
+/* 3. mini menu popup */
+.mini-menu{
+  position:absolute;
+  top:38px;
+  right:0;
+  width:180px;
+  background:rgba(18,22,31,.98);
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:14px;
+  padding:8px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  z-index:9999;
+  box-shadow:0 14px 30px rgba(0,0,0,.45);
+  backdrop-filter:blur(12px);
+}
+
+.mini-menu button{
+  border:none;
+  background:#1b2230;
+  color:#fff;
+  text-align:left;
+  padding:11px 12px;
+  border-radius:10px;
+  font-size:14px;
+  cursor:pointer;
+}
+
+.mini-menu button:hover{
+  background:#2a3347;
+}
+
+/* 4. textbox naik normal */
+.input-wrap{
+  position:fixed !important;
+  left:0;
+  right:0;
+  bottom:0;
+  z-index:25;
+  padding:12px;
+  padding-bottom:calc(12px + env(safe-area-inset-bottom));
+  border-top:1px solid rgba(255,255,255,.05);
+}
+
+/* desktop offset sidebar */
+@media(min-width:901px){
+  .input-wrap{
+    left:290px;
+  }
+}
+
+/* 5. chat area tidak ketiban input */
+.chat-area{
+  padding:18px 16px 130px !important;
+}
+
+/* 6. placeholder normal */
+#input{
+  font-style:normal !important;
+}
+
+#input::placeholder{
+  font-style:normal !important;
+  color:#97a0b3;
+}
+
+/* 7. more menu lebih bagus */
+.more-menu{
+  z-index:9999;
+}
+
+.more-menu button{
+  background:#1b2230;
+  cursor:pointer;
+}
+
+.more-menu button:hover{
+  background:#2a3347;
+}
+
+/* 8. mobile aman */
+@media(max-width:900px){
+
+  .input-wrap{
+    left:0 !important;
+  }
+
+  .chat-area{
+    padding-bottom:140px !important;
+  }
+
+}
