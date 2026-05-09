@@ -570,8 +570,11 @@ function toggleMoreMenu(btn = null){
 // ======================
 function toggleSidebar(){
 
-  if(sidebar.classList.contains("show")){
-    closeSidebarMobile();
+  const isOpen = sidebar.classList.contains("show");
+
+  if(isOpen){
+    sidebar.classList.remove("show");
+    overlay.classList.add("hidden");
   }else{
     sidebar.classList.add("show");
     overlay.classList.remove("hidden");
