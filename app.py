@@ -1,6 +1,11 @@
 from flask import Flask, render_template, request, jsonify, session
-import requests, time, base64, os, json, hashlib, random, re
+import requests, time, os, json, hashlib, random, re
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
+# ==================================================
+# APP
+# ==================================================
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "neuromv-ultra-final-key")
 
@@ -15,6 +20,24 @@ MEMORY_SIZE = 40
 PROFILE_FILE = "user_profiles.json"
 PIN_FILE = "pin_db.json"
 
+REQUEST_TIMEOUT = 18
+
+# ==================================================
+# HTTP SESSION (stable)
+# ==================================================
+http = requests.Session()
+
+retry = Retry(
+    total=2,
+    backoff_factor=0.6,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["POST", "GET"]
+)
+
+adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
+http.mount("https://", adapter)
+http.mount("http://", adapter)
+
 # ==================================================
 # API KEYS
 # ==================================================
@@ -22,49 +45,43 @@ def split_keys(name):
     raw = os.getenv(name, "")
     return [x.strip() for x in raw.split(",") if x.strip()]
 
-GROQ_KEYS = split_keys("GROQ_API_KEYS")
-if not GROQ_KEYS:
-    one = os.getenv("GROQ_API_KEY", "").strip()
-    if one:
-        GROQ_KEYS = [one]
+def load_keys(multi_name, single_name):
+    arr = split_keys(multi_name)
+    if arr:
+        return arr
 
-CEREBRAS_KEYS = split_keys("CEREBRAS_API_KEYS")
-if not CEREBRAS_KEYS:
-    one = os.getenv("CEREBRAS_API_KEY", "").strip()
-    if one:
-        CEREBRAS_KEYS = [one]
+    one = os.getenv(single_name, "").strip()
+    return [one] if one else []
 
-GEMINI_KEYS = split_keys("GEMINI_API_KEYS")
-if not GEMINI_KEYS:
-    one = os.getenv("GEMINI_API_KEY", "").strip()
-    if one:
-        GEMINI_KEYS = [one]
+GROQ_KEYS = load_keys("GROQ_API_KEYS", "GROQ_API_KEY")
+CEREBRAS_KEYS = load_keys("CEREBRAS_API_KEYS", "CEREBRAS_API_KEY")
+GEMINI_KEYS = load_keys("GEMINI_API_KEYS", "GEMINI_API_KEY")
 
 # ==================================================
-# SYSTEM PROMPT (ENGLISH / AI STYLE)
+# SYSTEM PROMPT
 # ==================================================
 SYSTEM_PROMPT = """
-You are NeuroMV, a highly capable next-generation AI assistant.
+You are NeuroMV, a next-generation premium AI assistant created by Marvell Jonathan Siau.
 
-Core Identity:
-- Intelligent, fast, helpful, modern, accurate.
-- Friendly and natural in conversation.
-- If the user speaks Indonesian casually, you may reply casually too.
-- If the user speaks English, reply professionally and naturally.
+Identity:
+- Smart, fast, accurate, modern, helpful.
+- Friendly and natural.
+- Match user language naturally.
+- If user uses Indonesian, reply naturally in Indonesian.
+- If user uses English, reply professionally.
 
 Capabilities:
-- Advanced coding, debugging, scripting, architecture.
-- Analyze files, text, images, screenshots, and data.
-- Explain complex topics clearly.
-- Solve problems step-by-step.
-- Generate creative and practical ideas.
+- Coding, debugging, architecture, scripting.
+- Explain concepts clearly.
+- Analyze files, screenshots, text, data.
+- Give practical solutions.
+- Strong reasoning.
 
-Behavior Rules:
-- Be concise when possible, detailed when needed.
-- Never pretend to know something uncertain.
-- If unclear, ask smart follow-up questions.
-- Prioritize usefulness and correctness.
-- Sound like a premium AI assistant.
+Rules:
+- Never pretend certainty when unsure.
+- If needed, ask follow-up questions.
+- Be concise unless detail is needed.
+- Always maximize usefulness.
 """
 
 # ==================================================
@@ -77,29 +94,21 @@ IMAGE_WORDS = [
 ]
 
 # ==================================================
-# BLOCK WORDS (100+)
+# BLOCK WORDS
 # ==================================================
 BLOCK_WORDS = [
-"porn","xxx","nsfw","bokep","nude","naked","sex","hentai","milf","onlyfans",
-"rape","rapist","molest","incest","pedo","pedophile","child porn",
-"kill","murder","assassinate","slaughter","stab","shoot","massacre",
-"suicide","self harm","hang myself","cut myself","die now",
-"bomb","grenade","explosive","terrorist","terrorism","isis","jihad attack",
-"hack","hacker","phishing","ddos","malware","virus","ransomware",
-"keylogger","steal password","bypass otp","crack wifi","bobol wifi",
-"drugs","cocaine","heroin","meth","lsd","ecstasy","weed","ganja",
-"opium","fentanyl","amphetamine","morphine",
-"gun","pistol","rifle","ak47","weapon","ammo",
-"fake id","counterfeit","money laundering","fraud","scam",
-"credit card steal","carding","dark web","deep web drugs",
-"perkosa","bunuh diri","sadap wa","bobol akun","hack ig",
-"membunuh","racun","merakit bom","senjata api",
-"porno","telanjang","ngentot","kontol","memek","vagina"
-"قتل","اباحية","اغتصاب","انتحار",
-"убить","порно","самоубийство",
-"杀人","色情","自杀",
-"殺人","ポルノ","自殺",
-"violence","bloodbath","behead","execution","hostage"
+"porn","xxx","nsfw","bokep","nude","naked","sex","hentai",
+"rape","pedophile","child porn",
+"kill","murder","assassinate","stab","shoot",
+"suicide","self harm","hang myself",
+"bomb","grenade","terrorist","terrorism",
+"hack","phishing","ddos","malware","ransomware",
+"keylogger","steal password","bypass otp",
+"cocaine","heroin","meth","weed","ganja",
+"fake id","carding","dark web",
+"perkosa","bunuh diri","bobol akun","hack ig",
+"membunuh","merakit bom","senjata api",
+"قتل","色情","自殺","убить"
 ]
 
 def normalize(t):
@@ -117,12 +126,12 @@ def blocked(msg):
 # USER ID
 # ==================================================
 def uid():
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "")
     ua = request.headers.get("User-Agent", "")
     return hashlib.md5((ip + ua).encode()).hexdigest()
 
 # ==================================================
-# DAILY COUNTER
+# DAILY LIMIT
 # ==================================================
 def today():
     return int(time.time() // 86400)
@@ -159,56 +168,52 @@ def over_file():
     return session["file_count"] >= FILE_LIMIT
 
 # ==================================================
-# PIN SYSTEM
+# JSON HELPERS
 # ==================================================
-def load_pin():
+def read_json(path, default):
     try:
-        with open(PIN_FILE,"r",encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except:
-        return {}
+        return default
 
-def save_pin(d):
-    with open(PIN_FILE,"w",encoding="utf-8") as f:
-        json.dump(d,f,indent=2)
+def write_json(path, data):
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except:
+        pass
 
-def hash_pin(p):
-    return hashlib.sha256(p.encode()).hexdigest()
+# ==================================================
+# PIN
+# ==================================================
+def hash_pin(pin):
+    return hashlib.sha256(pin.encode()).hexdigest()
 
 def pin_exists():
-    return uid() in load_pin()
+    db = read_json(PIN_FILE, {})
+    return uid() in db
 
 def pin_ok(pin):
-    db = load_pin()
+    db = read_json(PIN_FILE, {})
     u = uid()
     return u in db and db[u] == hash_pin(pin)
 
 def set_pin(pin):
-    db = load_pin()
+    db = read_json(PIN_FILE, {})
     db[uid()] = hash_pin(pin)
-    save_pin(db)
+    write_json(PIN_FILE, db)
 
 # ==================================================
 # PROFILE
 # ==================================================
-def load_profiles():
-    try:
-        with open(PROFILE_FILE,"r",encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {}
-
-def save_profiles(d):
-    with open(PROFILE_FILE,"w",encoding="utf-8") as f:
-        json.dump(d,f,indent=2)
-
 def get_profile():
-    db = load_profiles()
+    db = read_json(PROFILE_FILE, {})
     u = uid()
 
     if u not in db:
-        db[u] = {"name":"","likes":[]}
-        save_profiles(db)
+        db[u] = {"name":"", "likes":[]}
+        write_json(PROFILE_FILE, db)
 
     return db[u]
 
@@ -227,20 +232,20 @@ def get_mem(cid):
     return m[cid]
 
 def push(cid, role, text):
-    m = get_mem(cid)
-    m.append({"role":role,"text":text})
+    arr = get_mem(cid)
+    arr.append({"role":role, "text":text})
 
-    if len(m) > MEMORY_SIZE:
-        m.pop(0)
+    if len(arr) > MEMORY_SIZE:
+        arr.pop(0)
 
-    session["mem"][cid] = m
+    session["mem"][cid] = arr
 
 # ==================================================
 # PROMPT
 # ==================================================
 def build_prompt(cid, msg):
     p = get_profile()
-    m = get_mem(cid)
+    history = get_mem(cid)
 
     txt = SYSTEM_PROMPT + "\n\n"
 
@@ -249,21 +254,25 @@ def build_prompt(cid, msg):
 
     txt += "Conversation Memory:\n"
 
-    for x in m:
+    for x in history:
         txt += f"{x['role']}: {x['text']}\n"
 
     txt += f"user: {msg}\nassistant:"
     return txt
 
 # ==================================================
-# AI PROVIDERS
+# PROVIDERS
 # ==================================================
 def ask_groq(prompt):
-    random.shuffle(GROQ_KEYS)
+    if not GROQ_KEYS:
+        return None
 
-    for key in GROQ_KEYS:
+    keys = GROQ_KEYS[:]
+    random.shuffle(keys)
+
+    for key in keys:
         try:
-            r = requests.post(
+            r = http.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {key}",
@@ -276,22 +285,27 @@ def ask_groq(prompt):
                         {"role":"user","content":prompt}
                     ]
                 },
-                timeout=18
+                timeout=REQUEST_TIMEOUT
             )
 
             if r.status_code == 200:
                 return r.json()["choices"][0]["message"]["content"].strip()
-        except:
-            pass
+
+        except Exception as e:
+            print("GROQ ERROR:", e)
 
     return None
 
 def ask_cerebras(prompt):
-    random.shuffle(CEREBRAS_KEYS)
+    if not CEREBRAS_KEYS:
+        return None
 
-    for key in CEREBRAS_KEYS:
+    keys = CEREBRAS_KEYS[:]
+    random.shuffle(keys)
+
+    for key in keys:
         try:
-            r = requests.post(
+            r = http.post(
                 "https://api.cerebras.ai/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {key}",
@@ -304,60 +318,79 @@ def ask_cerebras(prompt):
                         {"role":"user","content":prompt}
                     ]
                 },
-                timeout=18
+                timeout=REQUEST_TIMEOUT
             )
 
             if r.status_code == 200:
                 return r.json()["choices"][0]["message"]["content"].strip()
-        except:
-            pass
+
+        except Exception as e:
+            print("CEREBRAS ERROR:", e)
 
     return None
 
 def ask_gemini(prompt):
-    for key in GEMINI_KEYS:
+    if not GEMINI_KEYS:
+        return None
+
+    keys = GEMINI_KEYS[:]
+    random.shuffle(keys)
+
+    for key in keys:
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
 
-            r = requests.post(
+            r = http.post(
                 url,
                 json={
-                    "contents":[{"parts":[{"text":prompt}]}]
+                    "contents":[
+                        {"parts":[{"text":prompt}]}
+                    ]
                 },
-                timeout=18
+                timeout=REQUEST_TIMEOUT
             )
 
             if r.status_code == 200:
                 data = r.json()
                 return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        except:
-            pass
+
+        except Exception as e:
+            print("GEMINI ERROR:", e)
 
     return None
 
 def ask_pollinations(prompt):
     try:
-        r = requests.get(
+        r = http.get(
             "https://text.pollinations.ai/" + prompt,
             timeout=15
         )
+
         if r.status_code == 200:
             return r.text.strip()
-    except:
-        pass
+
+    except Exception as e:
+        print("POLLINATIONS ERROR:", e)
 
     return None
 
 def ask_ai(cid, msg):
     prompt = build_prompt(cid, msg)
 
-    for fn in [ask_cerebras, ask_groq, ask_gemini, ask_pollinations]:
+    providers = [
+        ask_cerebras,
+        ask_groq,
+        ask_gemini,
+        ask_pollinations
+    ]
+
+    for fn in providers:
         try:
             out = fn(prompt)
             if out:
                 return out
-        except:
-            pass
+        except Exception as e:
+            print("PROVIDER FAIL:", e)
 
     return "NeuroMV is temporarily unavailable. Please try again shortly."
 
@@ -370,23 +403,24 @@ def want_image(msg):
 
 def make_image(prompt):
     return {
-        "url":"https://image.pollinations.ai/prompt/" + prompt.replace(" ","%20")
+        "url":"https://image.pollinations.ai/prompt/" + prompt.replace(" ", "%20")
     }
 
 # ==================================================
-# FILE / VISION
+# FILE
 # ==================================================
-def read_image(file_bytes):
-    return "Image received successfully. I can describe the photo, detect objects, explain the scene, or analyze details if you'd like."
+def read_image(_):
+    return "Image received successfully. I can describe the photo, analyze objects, explain scenes, or inspect details."
 
 def read_text(file_bytes):
     try:
         txt = file_bytes.decode("utf-8", errors="ignore")[:1500]
 
         if not txt.strip():
-            return "File received, but the content appears to be empty or unreadable."
+            return "File received, but content is empty or unreadable."
 
-        return "This file contains:\n\n" + txt + "\n\nWould you like a summary or deeper explanation?"
+        return f"This file contains:\n\n{txt}\n\nWould you like a summary or detailed explanation?"
+
     except:
         return "File received, but this format is not readable yet."
 
@@ -399,28 +433,33 @@ def home():
 
 @app.route("/pin/setup", methods=["POST"])
 def pin_setup():
-    pin = request.json.get("pin","")
+    pin = request.json.get("pin", "").strip()
+
+    if not pin:
+        return jsonify({"error":"PIN required"}), 400
+
     if pin_exists():
-        return jsonify({"error":"PIN already exists"}),400
+        return jsonify({"error":"PIN already exists"}), 400
 
     set_pin(pin)
     return jsonify({"status":"created"})
 
 @app.route("/pin/check", methods=["POST"])
 def pin_check():
-    pin = request.json.get("pin","")
+    pin = request.json.get("pin", "").strip()
 
     if pin_ok(pin):
         session["pin_ok"] = True
         return jsonify({"ok":True})
 
-    return jsonify({"ok":False}),401
+    return jsonify({"ok":False}), 401
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    cid = request.form.get("chat_id","default")
-    msg = request.form.get("message","").strip()
+    cid = request.form.get("chat_id", "default")
+    msg = request.form.get("message", "").strip()
 
+    # LIMIT CHAT
     if over_chat():
         return jsonify({"type":"limit_chat"})
 
@@ -444,14 +483,20 @@ def chat():
             else:
                 reply = read_text(data)
 
-            push(cid,"user","[file]")
-            push(cid,"bot",reply)
+            push(cid, "user", "[file]")
+            push(cid, "bot", reply)
 
-            return jsonify({"type":"text","reply":reply})
+            return jsonify({
+                "type":"text",
+                "reply":reply
+            })
 
-    # BLOCK
+    # BLOCKED
     if blocked(msg):
-        return jsonify({"type":"text","reply":"I can't help with that request."})
+        return jsonify({
+            "type":"text",
+            "reply":"I can't help with that request."
+        })
 
     # IMAGE
     if want_image(msg):
@@ -471,8 +516,8 @@ def chat():
     # NORMAL CHAT
     reply = ask_ai(cid, msg)
 
-    push(cid,"user",msg)
-    push(cid,"bot",reply)
+    push(cid, "user", msg)
+    push(cid, "bot", reply)
 
     return jsonify({
         "type":"text",
@@ -483,4 +528,5 @@ def chat():
 # RUN
 # ==================================================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)

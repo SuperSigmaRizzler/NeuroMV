@@ -1,10 +1,14 @@
 // =========================
-// NEUROMV FINAL ULTRA STABLE
+// NEUROMV ULTRA FINAL V2
+// FULL STABLE SCRIPT.JS
 // =========================
 
+// =========================
+// STORAGE
+// =========================
 let chats = JSON.parse(localStorage.getItem("neuromv_chats") || "[]");
 let privateChats = JSON.parse(localStorage.getItem("neuromv_private") || "[]");
-let current = localStorage.getItem("neuromv_current") || null;
+let current = localStorage.getItem("neuromv_current") || "";
 
 let renameTarget = null;
 let deleteTarget = null;
@@ -34,7 +38,6 @@ const deleteModal = document.getElementById("deleteModal");
 
 const pinModal = document.getElementById("pinModal");
 const pinInput = document.getElementById("pinInput");
-const pinText = document.getElementById("pinText");
 
 const moreMenu = document.getElementById("moreMenu");
 
@@ -42,19 +45,10 @@ const sendBtn = document.getElementById("sendBtn");
 const uploadBtn = document.querySelector(".upload-btn");
 
 // =========================
-// SAVE
-// =========================
-function saveData(){
-  localStorage.setItem("neuromv_chats", JSON.stringify(chats));
-  localStorage.setItem("neuromv_private", JSON.stringify(privateChats));
-  localStorage.setItem("neuromv_current", current || "");
-}
-
-// =========================
 // HELPERS
 // =========================
 function uid(){
-  return "c" + Date.now() + Math.floor(Math.random()*9999);
+  return "c" + Date.now() + Math.floor(Math.random()*99999);
 }
 
 function esc(t){
@@ -62,6 +56,12 @@ function esc(t){
     .replace(/&/g,"&amp;")
     .replace(/</g,"&lt;")
     .replace(/>/g,"&gt;");
+}
+
+function saveData(){
+  localStorage.setItem("neuromv_chats", JSON.stringify(chats));
+  localStorage.setItem("neuromv_private", JSON.stringify(privateChats));
+  localStorage.setItem("neuromv_current", current || "");
 }
 
 function currentChat(){
@@ -107,6 +107,18 @@ function newChat(){
 }
 
 // =========================
+// AUTO FIRST CHAT
+// =========================
+function ensureChat(){
+  if(chats.length === 0){
+    newChat();
+  }else if(!current){
+    current = chats[0].id;
+    saveData();
+  }
+}
+
+// =========================
 // HISTORY
 // =========================
 function renderHistory(){
@@ -117,6 +129,10 @@ function renderHistory(){
 
     const div = document.createElement("div");
     div.className = "history-item";
+
+    if(c.id === current){
+      div.classList.add("active");
+    }
 
     div.innerHTML = `
       <div class="history-top">
@@ -130,6 +146,7 @@ function renderHistory(){
     div.onclick = ()=>{
       current = c.id;
       saveData();
+      renderHistory();
       renderChat();
       closeSidebarMobile();
     };
@@ -169,17 +186,13 @@ function toggleMenu(id, btn){
 }
 
 // =========================
-// TOP RIGHT CHAT MENU
-// sinkron dengan chat aktif
+// TOP CHAT MENU
 // =========================
 function toggleMoreMenu(){
 
   closeMenus();
 
-  if(!current){
-    moreMenu.classList.toggle("hidden");
-    return;
-  }
+  if(!current) return;
 
   const old = document.getElementById("chatTopMenu");
   if(old){
@@ -189,7 +202,7 @@ function toggleMoreMenu(){
 
   const menu = document.createElement("div");
   menu.id = "chatTopMenu";
-  menu.className = "mini-menu top-chat-menu";
+  menu.className = "mini-menu";
 
   menu.innerHTML = `
     <button onclick="openRename('${current}')">✏ Rename Chat</button>
@@ -200,8 +213,10 @@ function toggleMoreMenu(){
   document.body.appendChild(menu);
 
   const btn = document.querySelector(".dots-btn");
+
   if(btn){
     const r = btn.getBoundingClientRect();
+
     menu.style.position = "fixed";
     menu.style.top = (r.bottom + 8) + "px";
     menu.style.right = "12px";
@@ -216,14 +231,13 @@ document.addEventListener("click",(e)=>{
     !e.target.closest(".dots-btn")
   ){
     closeMenus();
-
-    const x = document.getElementById("chatTopMenu");
-    if(x) x.remove();
+    const top = document.getElementById("chatTopMenu");
+    if(top) top.remove();
   }
 });
 
 // =========================
-// CHAT
+// CHAT VIEW
 // =========================
 function renderChat(){
 
@@ -231,16 +245,9 @@ function renderChat(){
 
   const c = currentChat();
 
-  if(!c){
-    chatBox.innerHTML = `
-      <div class="welcome">
-        <h2>NeuroMV</h2>
-        <p>Your intelligent AI assistant</p>
-      </div>
-    `;
-    return;
-  }
+  if(!c) return;
 
+  // welcome only if chat empty
   if(c.msg.length === 0){
     chatBox.innerHTML = `
       <div class="welcome">
@@ -252,16 +259,21 @@ function renderChat(){
   }
 
   c.msg.forEach(m=>{
+
     if(m.type === "image"){
-      bubbleImage(m.url,m.role,false);
+      bubbleImage(m.url, m.role, false);
     }else{
-      bubble(m.text,m.role,false,false);
+      bubble(m.text, m.role, false, false);
     }
+
   });
 
   scrollBottom();
 }
 
+// =========================
+// TEXT BUBBLE
+// =========================
 function bubble(text, role="bot", save=true, typing=true){
 
   const row = document.createElement("div");
@@ -275,14 +287,14 @@ function bubble(text, role="bot", save=true, typing=true){
 
   if(typing && role==="bot"){
 
-    let i=0;
+    let i = 0;
 
     function type(){
-      if(i<text.length){
+      if(i < text.length){
         box.innerHTML += esc(text[i]);
         i++;
         scrollBottom();
-        setTimeout(type,10);
+        setTimeout(type,8);
       }
     }
 
@@ -293,10 +305,16 @@ function bubble(text, role="bot", save=true, typing=true){
   }
 
   if(save){
+
     const c = currentChat();
 
     if(c){
-      c.msg.push({role,text,type:"text"});
+
+      c.msg.push({
+        role,
+        text,
+        type:"text"
+      });
 
       if(c.msg.length===1 && role==="user"){
         c.title = text.slice(0,30);
@@ -310,6 +328,9 @@ function bubble(text, role="bot", save=true, typing=true){
   scrollBottom();
 }
 
+// =========================
+// IMAGE BUBBLE
+// =========================
 function bubbleImage(url, role="bot", save=true){
 
   const row = document.createElement("div");
@@ -324,9 +345,16 @@ function bubbleImage(url, role="bot", save=true){
   chatBox.appendChild(row);
 
   if(save){
+
     const c = currentChat();
+
     if(c){
-      c.msg.push({role,url,type:"image"});
+      c.msg.push({
+        role,
+        url,
+        type:"image"
+      });
+
       saveData();
     }
   }
@@ -367,8 +395,14 @@ function imageDoneBubble(url){
   chatBox.appendChild(row);
 
   const c = currentChat();
+
   if(c){
-    c.msg.push({role:"bot",url,type:"image"});
+    c.msg.push({
+      role:"bot",
+      url:url,
+      type:"image"
+    });
+
     saveData();
   }
 
@@ -376,7 +410,7 @@ function imageDoneBubble(url){
 }
 
 // =========================
-// SEND
+// SEND MESSAGE
 // =========================
 form.addEventListener("submit", async(e)=>{
 
@@ -385,18 +419,21 @@ form.addEventListener("submit", async(e)=>{
   if(chatLocked) return;
 
   const msg = input.value.trim();
+
   if(!msg && !selectedFile) return;
 
   if(!current) newChat();
 
-  if(msg) bubble(msg,"user",true,false);
+  if(msg){
+    bubble(msg,"user",true,false);
+  }
 
   const fd = new FormData();
-  fd.append("message",msg);
-  fd.append("chat_id",current);
+  fd.append("message", msg);
+  fd.append("chat_id", current);
 
   if(selectedFile){
-    fd.append("file",selectedFile);
+    fd.append("file", selectedFile);
   }
 
   input.value = "";
@@ -415,12 +452,14 @@ form.addEventListener("submit", async(e)=>{
     if(data.type==="limit_chat"){
       chatLocked = true;
       dimButton(sendBtn);
+      bubble("Daily chat limit reached.","bot",true,false);
       return;
     }
 
     if(data.type==="limit_file"){
       fileLocked = true;
       dimButton(uploadBtn);
+      bubble("Daily file upload limit reached.","bot",true,false);
       return;
     }
 
@@ -431,6 +470,7 @@ form.addEventListener("submit", async(e)=>{
     }
 
     if(data.type==="image"){
+
       const loading = creatingImageBubble();
 
       setTimeout(()=>{
@@ -443,25 +483,30 @@ form.addEventListener("submit", async(e)=>{
 
     bubble(data.reply || "No response");
 
-  }catch{
+  }catch(err){
+
     bubble("Connection error.","bot",true,false);
   }
 
 });
 
 // =========================
-// ENTER SEND
+// ENTER = SEND
 // =========================
 input.addEventListener("keydown",(e)=>{
+
   if(e.key==="Enter" && !e.shiftKey){
+
     e.preventDefault();
+
     if(chatLocked) return;
+
     form.requestSubmit();
   }
 });
 
 // =========================
-// FILE
+// FILE PICK
 // =========================
 fileInput.addEventListener("change",()=>{
 
@@ -478,17 +523,38 @@ fileInput.addEventListener("change",()=>{
 });
 
 // =========================
-// PRIVATE / PIN / RENAME / DELETE
+// PRIVATE
 // =========================
-function movePrivate(id){ alert("Private enabled"); }
-function openPrivate(){ alert("Open private chats"); }
-function restorePrivate(id){}
-function setPinPrompt(){ pinModal.classList.remove("hidden"); }
-function submitPin(){ closePin(); }
-function closePin(){ pinModal.classList.add("hidden"); }
+function movePrivate(id){
 
+  const i = chats.findIndex(x=>x.id===id);
+  if(i===-1) return;
+
+  const chat = chats[i];
+  chat.private = true;
+
+  privateChats.unshift(chat);
+  chats.splice(i,1);
+
+  if(current===id){
+    current = chats[0]?.id || "";
+  }
+
+  saveData();
+  renderHistory();
+  renderChat();
+}
+
+function openPrivate(){
+  alert("Private Chats: " + privateChats.length);
+}
+
+// =========================
+// RENAME
+// =========================
 function openRename(id){
   renameTarget = id;
+  renameInput.value = "";
   renameModal.classList.remove("hidden");
 }
 
@@ -502,13 +568,19 @@ function saveRename(){
   if(!val) return;
 
   const c = chats.find(x=>x.id===renameTarget);
-  if(c) c.title = val;
+
+  if(c){
+    c.title = val;
+  }
 
   saveData();
   renderHistory();
   closeRename();
 }
 
+// =========================
+// DELETE
+// =========================
 function askDelete(id){
   deleteTarget = id;
   deleteModal.classList.remove("hidden");
@@ -523,12 +595,32 @@ function confirmDelete(){
   chats = chats.filter(x=>x.id!==deleteTarget);
   privateChats = privateChats.filter(x=>x.id!==deleteTarget);
 
-  if(current===deleteTarget) current=null;
+  if(current===deleteTarget){
+    current = chats[0]?.id || "";
+  }
 
   saveData();
+
+  ensureChat();
   renderHistory();
   renderChat();
+
   closeDelete();
+}
+
+// =========================
+// PIN
+// =========================
+function setPinPrompt(){
+  pinModal.classList.remove("hidden");
+}
+
+function submitPin(){
+  pinModal.classList.add("hidden");
+}
+
+function closePin(){
+  pinModal.classList.add("hidden");
 }
 
 // =========================
@@ -544,14 +636,22 @@ function closeSidebarMobile(){
   overlay.classList.add("hidden");
 }
 
+// =========================
+// PRIVATE COUNT
+// =========================
 function updatePrivateCount(){
+
   const el = document.querySelector(".private-chats");
-  if(el) el.innerText = `Private Chats: ${privateChats.length}`;
+
+  if(el){
+    el.innerText = `Private Chats: ${privateChats.length}`;
+  }
 }
 
 // =========================
 // INIT
 // =========================
+ensureChat();
 renderHistory();
 renderChat();
 updatePrivateCount();
