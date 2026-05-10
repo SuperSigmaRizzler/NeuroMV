@@ -15,6 +15,9 @@ let renameTarget = null;
 let deleteTarget = null;
 let selectedFile = null;
 
+let savedPin = localStorage.getItem("neuromv_pin") || "";
+let pinMode = "";
+let pendingPrivateId = null;
 let chatLocked = false;
 let imageLocked = false;
 let fileLocked = false;
@@ -211,6 +214,53 @@ function toggleMenu(id, btn){
   `;
 
   btn.parentElement.appendChild(menu);
+}
+
+function togglePrivateMenu(id, btn){
+
+  closeMenus();
+
+  const menu = document.createElement("div");
+
+  menu.className = "mini-menu";
+
+  menu.innerHTML = `
+    <button onclick="unPrivate('${id}')">
+      🔓 Un-Private
+    </button>
+
+    <button onclick="askDelete('${id}')">
+      🗑 Delete
+    </button>
+  `;
+
+  btn.parentElement.appendChild(menu);
+}
+
+function unPrivate(id){
+
+  const val = prompt("Enter PIN");
+
+  if(val !== savedPin){
+    alert("Wrong PIN");
+    return;
+  }
+
+  const i = privateChats.findIndex(x=>x.id===id);
+
+  if(i===-1) return;
+
+  const chat = privateChats[i];
+
+  chat.private = false;
+
+  chats.unshift(chat);
+
+  privateChats.splice(i,1);
+
+  saveData();
+
+  renderHistory();
 }
 
 function toggleMoreMenu(){
@@ -581,26 +631,48 @@ fileInput.addEventListener("change",()=>{
 // =========================
 function movePrivate(id){
 
-  const i = chats.findIndex(x=>x.id===id);
-  if(i===-1) return;
+  pendingPrivateId = id;
 
-  const chat = chats[i];
-  chat.private = true;
+  if(!savedPin){
 
-  privateChats.unshift(chat);
-  chats.splice(i,1);
+    pinMode = "create_private";
 
-  if(current===id){
-    current = chats[0]?.id || "";
+    document.getElementById("pinText").innerText =
+      "Create PIN for Private Chats";
+
+  }else{
+
+    pinMode = "verify_private";
+
+    document.getElementById("pinText").innerText =
+      "Enter PIN to move chat";
   }
 
-  saveData();
-  renderHistory();
-  renderChat();
+  pinInput.value = "";
+  pinModal.classList.remove("hidden");
 }
 
 function openPrivate(){
-  alert("Private Chats: " + privateChats.length);
+
+  if(!savedPin){
+
+    pinMode = "create_access";
+    document.getElementById("pinText").innerText =
+      "Create a new PIN";
+
+    pinInput.value = "";
+    pinModal.classList.remove("hidden");
+
+    return;
+  }
+
+  pinMode = "open_private";
+
+  document.getElementById("pinText").innerText =
+    "Enter your PIN";
+
+  pinInput.value = "";
+  pinModal.classList.remove("hidden");
 }
 
 // =========================
@@ -670,11 +742,124 @@ function setPinPrompt(){
 }
 
 function submitPin(){
+
+  const val = pinInput.value.trim();
+
+  if(!val) return;
+
+  // =====================
+  // CREATE PIN
+  // =====================
+  if(pinMode === "create_private" ||
+     pinMode === "create_access"){
+
+    savedPin = val;
+
+    localStorage.setItem(
+      "neuromv_pin",
+      savedPin
+    );
+
+    // lanjut private
+    if(pinMode === "create_private"){
+      doMovePrivate();
+    }
+
+    pinModal.classList.add("hidden");
+    return;
+  }
+function doMovePrivate(){
+
+  const id = pendingPrivateId;
+
+  const i = chats.findIndex(x=>x.id===id);
+
+  if(i===-1) return;
+
+  const chat = chats[i];
+
+  chat.private = true;
+
+  privateChats.unshift(chat);
+
+  chats.splice(i,1);
+
+  if(current===id){
+    current = chats[0]?.id || "";
+  }
+
+  saveData();
+
+  renderHistory();
+  renderChat();
+}
+  // =====================
+  // VERIFY
+  // =====================
+  if(val !== savedPin){
+    alert("Wrong PIN");
+    return;
+  }
+
+  // open private
+  if(pinMode === "open_private"){
+    showPrivateChats();
+  }
+
+  // verify private move
+  if(pinMode === "verify_private"){
+    doMovePrivate();
+  }
+
   pinModal.classList.add("hidden");
 }
 
-function closePin(){
-  pinModal.classList.add("hidden");
+function showPrivateChats(){
+
+  historyBox.innerHTML = "";
+
+  privateChats.forEach(c=>{
+
+    const div = document.createElement("div");
+
+    div.className = "history-item";
+
+    div.innerHTML = `
+      <div class="history-top">
+        <div class="history-title">
+          🔒 ${esc(c.title)}
+        </div>
+
+        <button class="icon-btn">⋮</button>
+      </div>
+    `;
+
+    div.onclick = ()=>{
+
+      chats.unshift(c);
+
+      privateChats =
+        privateChats.filter(x=>x.id!==c.id);
+
+      current = c.id;
+
+      saveData();
+
+      renderHistory();
+      renderChat();
+    };
+
+    div.querySelector(".icon-btn").onclick = (e)=>{
+      e.stopPropagation();
+
+      togglePrivateMenu(c.id, e.target);
+    };
+
+    historyBox.appendChild(div);
+  });
+}
+
+function closePin(){ pinModal.classList.add("hidden");
 }
 
 // =========================
