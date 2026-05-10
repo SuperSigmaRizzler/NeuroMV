@@ -153,8 +153,48 @@ function renderHistory(){
 // =========================
 // MENUS
 // =========================
+function toggleSidebarMenu(e){
+
+  e.stopPropagation();
+
+  const old = document.getElementById("sidebarFooterMenu");
+
+  if(old){
+    old.remove();
+    return;
+  }
+
+  closeMenus();
+
+  const menu = document.createElement("div");
+
+  menu.id = "sidebarFooterMenu";
+  menu.className = "more-menu";
+
+  menu.innerHTML = `
+    <div class="private-chats" onclick="openPrivate()">
+      Private Chats: ${privateChats.length}
+    </div>
+
+    <button onclick="setPinPrompt()">
+      🔑 Change PIN
+    </button>
+
+    <button onclick="document.getElementById('sidebarFooterMenu').remove()">
+      ✕ Close
+    </button>
+  `;
+
+  const footer = document.querySelector(".sidebar-footer");
+
+  footer.appendChild(menu);
+}
+
 function closeMenus(){
-  document.querySelectorAll(".mini-menu").forEach(x=>x.remove());
+
+  document
+    .querySelectorAll(".mini-menu, #sidebarFooterMenu")
+    .forEach(x=>x.remove());
 }
 
 function toggleMenu(id, btn){
@@ -209,6 +249,7 @@ function toggleMoreMenu(){
 document.addEventListener("click",(e)=>{
   if(
     !e.target.closest(".mini-menu") &&
+    !e.target.closest(".more-menu") &&
     !e.target.closest(".icon-btn") &&
     !e.target.closest(".dots-btn")
   ){
