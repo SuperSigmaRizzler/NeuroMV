@@ -9,13 +9,19 @@
 </head>
 <body>
 
-<!-- PIN MODAL -->
+<!-- =========================
+     PIN MODAL
+========================= -->
 <div id="pinModal" class="modal hidden">
   <div class="modal-card">
-    <h2>🛡 Change PIN</h2>
-    <p id="pinText">Enter PIN</p>
+    <h2>🔒 Change PIN</h2>
+    <p id="pinText">Enter your PIN</p>
 
-    <input id="pinInput" type="password" maxlength="20" placeholder="PIN">
+    <input
+      id="pinInput"
+      type="password"
+      maxlength="20"
+      placeholder="PIN">
 
     <div class="modal-actions">
       <button type="button" onclick="submitPin()">Continue</button>
@@ -24,11 +30,19 @@
   </div>
 </div>
 
-<!-- RENAME -->
+<!-- =========================
+     RENAME MODAL
+========================= -->
 <div id="renameModal" class="modal hidden">
   <div class="modal-card">
     <h2>✏ Rename Chat</h2>
-    <input id="renameInput" type="text" maxlength="60" placeholder="New name">
+
+    <input
+      id="renameInput"
+      type="text"
+      maxlength="60"
+      placeholder="New chat name">
+
     <div class="modal-actions">
       <button type="button" onclick="saveRename()">Save</button>
       <button type="button" class="ghost" onclick="closeRename()">Cancel</button>
@@ -36,11 +50,14 @@
   </div>
 </div>
 
-<!-- DELETE -->
+<!-- =========================
+     DELETE MODAL
+========================= -->
 <div id="deleteModal" class="modal hidden">
   <div class="modal-card">
     <h2>🗑 Delete Chat</h2>
     <p>Delete this chat permanently?</p>
+
     <div class="modal-actions">
       <button type="button" class="danger" onclick="confirmDelete()">Delete</button>
       <button type="button" class="ghost" onclick="closeDelete()">Cancel</button>
@@ -48,90 +65,133 @@
   </div>
 </div>
 
+<!-- =========================
+     APP
+========================= -->
 <div class="app">
 
-<!-- SIDEBAR -->
-<aside id="sidebar" class="sidebar">
+  <!-- =========================
+       SIDEBAR
+  ========================= -->
+  <aside id="sidebar" class="sidebar">
 
-<div class="sidebar-close-mobile">
-<button onclick="closeSidebarMobile()">✕</button>
-</div>
+    <!-- mobile close -->
+    <div class="sidebar-close-mobile">
+      <button onclick="closeSidebarMobile()">✕</button>
+    </div>
 
-<div class="brand">
-<div class="logo">✦</div>
-<div class="brand-text">
-<h1>NeuroMV</h1>
-<span>Made by Marvell Jonathan</span>
-</div>
-</div>
+    <!-- brand -->
+    <div class="brand">
+      <div class="logo">✦</div>
 
-<button class="new-chat-btn" onclick="newChat()">＋ New Chat</button>
+      <div class="brand-text">
+        <h1>NeuroMV</h1>
+        <span>Made by Marvell Jonathan</span>
+      </div>
+    </div>
 
-<div class="section-title">Chats</div>
+    <!-- new chat -->
+    <button class="new-chat-btn" onclick="newChat()">
+      ＋ New Chat
+    </button>
 
-<div id="history" class="history-list"></div>
+    <!-- history -->
+    <div class="section-title">Chats</div>
 
-<div class="sidebar-footer">
+    <div id="history" class="history-list"></div>
 
-<button class="menu-btn" onclick="openPrivate()">
-🔒 Private
-</button>
+    <!-- footer -->
+    <div class="sidebar-footer">
 
-<button class="menu-btn" onclick="toggleMoreMenu()">
-⋮
-</button>
+      <button class="menu-btn" onclick="openPrivate()">
+        🔒 Private
+      </button>
 
-<div id="moreMenu" class="more-menu hidden">
-<div onclick="openPrivate()" class="private-chats">
-  Private Chats: 1
-</div>
-<button onclick="setPinPrompt()">🛡 Change PIN</button>
-<button onclick="toggleMoreMenu()">✕ Close</button>
-</div>
+      <button class="menu-btn" onclick="toggleMoreMenu()">
+        ⋮
+      </button>
 
-</div>
-</aside>
+      <!-- popup -->
+      <div id="moreMenu" class="more-menu hidden">
 
-<!-- MAIN -->
-<main class="main">
+        <div class="private-chats" onclick="openPrivate()">
+          Private Chats: 0
+        </div>
 
-<div id="overlay" class="overlay hidden" onclick="closeSidebarMobile()"></div>
+        <button onclick="setPinPrompt()">
+          🔑 Change PIN
+        </button>
 
-<div class="mobile-topbar">
-<button class="hamburger" onclick="toggleSidebar()">☰</button>
-<div class="mobile-title">NeuroMV</div>
-<button class="dots-btn" onclick="toggleMoreMenu(this)">⋮</button>
-</div>
+        <button onclick="toggleMoreMenu()">
+          ✕ Close
+        </button>
 
-<div id="chat" class="chat-area">
-<div class="welcome">
-<h2>NeuroMV</h2>
-<p>Your intelligent AI assistant</p>
-</div>
-</div>
+      </div>
 
-<div id="preview" class="preview-wrap"></div>
+    </div>
 
-<form id="form" class="input-wrap">
+  </aside>
 
-<label class="upload-btn">
-+
-<input type="file" id="file" hidden>
-</label>
+  <!-- =========================
+       MAIN
+  ========================= -->
+  <main class="main">
 
-<textarea
-id="input"
-rows="1"
-placeholder="Message NeuroMV..."
-autocomplete="off"
-spellcheck="false"
-></textarea>
+    <!-- overlay -->
+    <div
+      id="overlay"
+      class="overlay hidden"
+      onclick="closeSidebarMobile()"></div>
 
-<button type="submit" id="sendBtn">➤</button>
+    <!-- topbar -->
+    <div class="mobile-topbar">
 
-</form>
+      <button
+        class="hamburger"
+        onclick="toggleSidebar()">☰</button>
 
-</main>
+      <div class="mobile-title">NeuroMV</div>
+
+      <button
+        class="dots-btn"
+        onclick="toggleMoreMenu()">⋮</button>
+
+    </div>
+
+    <!-- chat -->
+    <div id="chat" class="chat-area">
+
+      <div class="welcome">
+        <h2>NeuroMV</h2>
+        <p>Your intelligent AI assistant</p>
+      </div>
+
+    </div>
+
+    <!-- preview -->
+    <div id="preview" class="preview-wrap"></div>
+
+    <!-- input -->
+    <form id="form" class="input-wrap">
+
+      <label class="upload-btn">
+        +
+        <input type="file" id="file" hidden>
+      </label>
+
+      <textarea
+        id="input"
+        rows="1"
+        placeholder="Message NeuroMV..."
+        autocomplete="off"
+        spellcheck="false"></textarea>
+
+      <button type="submit" id="sendBtn">➤</button>
+
+    </form>
+
+  </main>
+
 </div>
 
 <script src="/static/script.js"></script>
