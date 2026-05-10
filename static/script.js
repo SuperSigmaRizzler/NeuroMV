@@ -627,8 +627,17 @@ fileInput.addEventListener("change",()=>{
 });
 
 // =========================
-// PRIVATE
+// PRIVATE SYSTEM
 // =========================
+
+let savedPin =
+  localStorage.getItem("neuromv_pin") || "";
+
+let pinMode = "";
+
+let pendingPrivateId = null;
+
+// MOVE TO PRIVATE
 function movePrivate(id){
 
   pendingPrivateId = id;
@@ -645,34 +654,293 @@ function movePrivate(id){
     pinMode = "verify_private";
 
     document.getElementById("pinText").innerText =
-      "Enter PIN to move chat";
+      "Enter PIN";
   }
 
   pinInput.value = "";
+
   pinModal.classList.remove("hidden");
 }
 
+// OPEN PRIVATE LIST
 function openPrivate(){
 
   if(!savedPin){
 
     pinMode = "create_access";
+
     document.getElementById("pinText").innerText =
       "Create a new PIN";
 
-    pinInput.value = "";
-    pinModal.classList.remove("hidden");
+  }else{
+
+    pinMode = "open_private";
+
+    document.getElementById("pinText").innerText =
+      "Enter your PIN";
+  }
+
+  pinInput.value = "";
+
+  pinModal.classList.remove("hidden");
+}
+
+// CHANGE PIN
+function setPinPrompt(){
+
+  pinMode = "change_pin";
+
+  document.getElementById("pinText").innerText =
+    "Enter new PIN";
+
+  pinInput.value = "";
+
+  pinModal.classList.remove("hidden");
+}
+
+// PIN SUBMIT
+function submitPin(){
+
+  const val = pinInput.value.trim();
+
+  if(!val) return;
+
+  // CHANGE PIN
+  if(pinMode === "change_pin"){
+
+    savedPin = val;
+
+    localStorage.setItem(
+      "neuromv_pin",
+      savedPin
+    );
+
+    pinModal.classList.add("hidden");
 
     return;
   }
 
-  pinMode = "open_private";
+  // CREATE PIN
+  if(
+    pinMode === "create_private" ||
+    pinMode === "create_access"
+  ){
 
-  document.getElementById("pinText").innerText =
-    "Enter your PIN";
+    savedPin = val;
 
-  pinInput.value = "";
-  pinModal.classList.remove("hidden");
+    localStorage.setItem(
+      "neuromv_pin",
+      savedPin
+    );
+
+    // lanjut private
+    if(pinMode === "create_private"){
+      doMovePrivate();
+    }
+
+    pinModal.classList.add("hidden");
+
+    return;
+  }
+
+  // WRONG PIN
+  if(val !== savedPin){
+
+    alert("Wrong PIN");
+
+    return;
+  }
+
+  // OPEN PRIVATE
+  if(pinMode === "open_private"){
+    showPrivateChats();
+  }
+
+  // MOVE PRIVATE
+  if(pinMode === "verify_private"){
+    doMovePrivate();
+  }
+
+  pinModal.classList.add("hidden");
+}
+
+// CLOSE PIN
+function closePin(){
+  pinModal.classList.add("hidden");
+}
+
+// REAL MOVE PRIVATE
+function doMovePrivate(){
+
+  const id = pendingPrivateId;
+
+  const i =
+    chats.findIndex(x=>x.id===id);
+
+  if(i===-1) return;
+
+  const chat = chats[i];
+
+  privateChats.unshift({
+    ...chat,
+    private:true
+  });
+
+  chats.splice(i,1);
+
+  if(current===id){
+    current = chats[0]?.id || "";
+  }
+
+  saveData();
+
+  renderHistory();
+  renderChat();
+}
+
+// SHOW PRIVATE LIST
+function showPrivateChats(){
+
+  historyBox.innerHTML = "";
+
+  privateChats.forEach(c=>{
+
+    const div =
+      document.createElement("div");
+
+    div.className = "history-item";
+
+    if(c.id === current){
+      div.classList.add("active");
+    }
+
+    div.innerHTML = `
+      <div class="history-top">
+
+        <div class="history-title">
+          🔒 ${esc(c.title)}
+        </div>
+
+        <button class="icon-btn">⋮</button>
+
+      </div>
+    `;
+
+    // OPEN PRIVATE CHAT
+    div.onclick = ()=>{
+
+      current = c.id;
+
+      chatBox.innerHTML = "";
+
+      if(c.msg.length === 0){
+
+        chatBox.innerHTML = `
+          <div class="welcome">
+            <h2>Private Chat</h2>
+          </div>
+        `;
+
+      }else{
+
+        c.msg.forEach(m=>{
+
+          if(m.type === "image"){
+
+            bubbleImage(
+              m.url,
+              m.role,
+              false
+            );
+
+          }else{
+
+            bubble(
+              m.text,
+              m.role,
+              false,
+              false
+            );
+          }
+
+        });
+
+      }
+
+      scrollBottom();
+    };
+
+    // PRIVATE MENU
+    div.querySelector(".icon-btn").onclick = (e)=>{
+
+      e.stopPropagation();
+
+      togglePrivateMenu(
+        c.id,
+        e.target
+      );
+    };
+
+    historyBox.appendChild(div);
+  });
+}
+
+// PRIVATE MENU
+function togglePrivateMenu(id, btn){
+
+  closeMenus();
+
+  const menu =
+    document.createElement("div");
+
+  menu.className = "mini-menu";
+
+  menu.innerHTML = `
+
+    <button onclick="unPrivate('${id}')">
+      🔓 Un-Private
+    </button>
+
+    <button onclick="askDelete('${id}')">
+      🗑 Delete
+    </button>
+
+  `;
+
+  btn.parentElement.appendChild(menu);
+}
+
+// UNPRIVATE
+function unPrivate(id){
+
+  const val = prompt("Enter PIN");
+
+  if(val !== savedPin){
+
+    alert("Wrong PIN");
+
+    return;
+  }
+
+  const i =
+    privateChats.findIndex(
+      x=>x.id===id
+    );
+
+  if(i===-1) return;
+
+  const chat = privateChats[i];
+
+  chats.unshift({
+    ...chat,
+    private:false
+  });
+
+  privateChats.splice(i,1);
+
+  saveData();
+
+  renderHistory();
 }
 
 // =========================
