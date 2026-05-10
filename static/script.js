@@ -1,5 +1,5 @@
 // =========================
-// NEUROMV FINAL STABLE
+// NEUROMV FINAL ULTRA STABLE
 // =========================
 
 let chats = JSON.parse(localStorage.getItem("neuromv_chats") || "[]");
@@ -9,7 +9,11 @@ let current = localStorage.getItem("neuromv_current") || null;
 let renameTarget = null;
 let deleteTarget = null;
 let selectedFile = null;
-let pinMode = "create";
+
+// limit lock state
+let chatLocked = false;
+let imageLocked = false;
+let fileLocked = false;
 
 // =========================
 // ELEMENTS
@@ -34,6 +38,9 @@ const pinInput = document.getElementById("pinInput");
 const pinText = document.getElementById("pinText");
 
 const moreMenu = document.getElementById("moreMenu");
+
+const sendBtn = document.getElementById("sendBtn");
+const uploadBtn = document.querySelector(".upload-btn");
 
 // =========================
 // SAVE
@@ -68,6 +75,18 @@ function scrollBottom(){
   },50);
 }
 
+function dimButton(el){
+  if(!el) return;
+  el.style.opacity = ".45";
+  el.style.pointerEvents = "none";
+}
+
+function normalButton(el){
+  if(!el) return;
+  el.style.opacity = "1";
+  el.style.pointerEvents = "auto";
+}
+
 // =========================
 // NEW CHAT
 // =========================
@@ -81,7 +100,6 @@ function newChat(){
   };
 
   chats.unshift(c);
-
   current = c.id;
 
   saveData();
@@ -99,21 +117,15 @@ function renderHistory(){
   chats.forEach(c=>{
 
     const div = document.createElement("div");
-
     div.className = "history-item";
 
     div.innerHTML = `
       <div class="history-top">
-
         <div class="history-title">
           ${c.private ? "🔒 " : ""}
           ${esc(c.title)}
         </div>
-
-        <button class="icon-btn">
-          ⋮
-        </button>
-
+        <button class="icon-btn">⋮</button>
       </div>
     `;
 
@@ -140,8 +152,7 @@ function renderHistory(){
 // MENU
 // =========================
 function closeMenus(){
-  document.querySelectorAll(".mini-menu")
-    .forEach(x=>x.remove());
+  document.querySelectorAll(".mini-menu").forEach(x=>x.remove());
 }
 
 function toggleMenu(id, btn){
@@ -153,7 +164,6 @@ function toggleMenu(id, btn){
   if(old) return;
 
   const menu = document.createElement("div");
-
   menu.className = "mini-menu";
 
   menu.innerHTML = `
@@ -222,37 +232,23 @@ function renderChat(){
 function bubble(text, role="bot", save=true, typing=true){
 
   const row = document.createElement("div");
-
-  row.className =
-    role === "user"
-      ? "user-row"
-      : "bot-row";
+  row.className = role==="user" ? "user-row" : "bot-row";
 
   const box = document.createElement("div");
-
-  box.className =
-    role === "user"
-      ? "user-bubble"
-      : "bot-bubble";
+  box.className = role==="user" ? "user-bubble" : "bot-bubble";
 
   row.appendChild(box);
-
   chatBox.appendChild(row);
 
   if(typing && role==="bot"){
 
-    let i=0;
+    let i = 0;
 
     function type(){
-
-      if(i<text.length){
-
+      if(i < text.length){
         box.innerHTML += esc(text[i]);
-
         i++;
-
         scrollBottom();
-
         setTimeout(type,10);
       }
     }
@@ -283,6 +279,8 @@ function bubble(text, role="bot", save=true, typing=true){
       renderHistory();
     }
   }
+
+  scrollBottom();
 }
 
 // =========================
@@ -291,25 +289,14 @@ function bubble(text, role="bot", save=true, typing=true){
 function bubbleImage(url, role="bot", save=true){
 
   const row = document.createElement("div");
-
-  row.className =
-    role==="user"
-      ? "user-row"
-      : "bot-row";
+  row.className = role==="user" ? "user-row" : "bot-row";
 
   const box = document.createElement("div");
+  box.className = role==="user" ? "user-bubble" : "bot-bubble";
 
-  box.className =
-    role==="user"
-      ? "user-bubble"
-      : "bot-bubble";
-
-  box.innerHTML = `
-    <img src="${url}" class="chat-img">
-  `;
+  box.innerHTML = `<img src="${url}" class="chat-img">`;
 
   row.appendChild(box);
-
   chatBox.appendChild(row);
 
   if(save){
@@ -317,7 +304,6 @@ function bubbleImage(url, role="bot", save=true){
     const c = currentChat();
 
     if(c){
-
       c.msg.push({
         role,
         url,
@@ -326,6 +312,55 @@ function bubbleImage(url, role="bot", save=true){
 
       saveData();
     }
+  }
+
+  scrollBottom();
+}
+
+// =========================
+// IMAGE STATUS
+// =========================
+function creatingImageBubble(){
+
+  const row = document.createElement("div");
+  row.className = "bot-row";
+
+  row.innerHTML = `
+    <div class="bot-bubble creating-image">
+      🎨 Creating Image...
+    </div>
+  `;
+
+  chatBox.appendChild(row);
+  scrollBottom();
+
+  return row;
+}
+
+function imageDoneBubble(url){
+
+  const row = document.createElement("div");
+  row.className = "bot-row";
+
+  row.innerHTML = `
+    <div class="bot-bubble">
+      <div style="margin-bottom:10px;">✅ Image Created</div>
+      <img src="${url}" class="chat-img">
+    </div>
+  `;
+
+  chatBox.appendChild(row);
+  scrollBottom();
+
+  const c = currentChat();
+
+  if(c){
+    c.msg.push({
+      role:"bot",
+      url:url,
+      type:"image"
+    });
+    saveData();
   }
 }
 
@@ -336,28 +371,34 @@ form.addEventListener("submit", async(e)=>{
 
   e.preventDefault();
 
+  if(chatLocked) return;
+
   const msg = input.value.trim();
 
   if(!msg && !selectedFile) return;
 
-  if(!current){
-    newChat();
-  }
+  if(!current) newChat();
 
   if(msg){
     bubble(msg,"user",true,false);
   }
 
-  input.value = "";
+  if(selectedFile){
+    bubble("📎 " + selectedFile.name,"user",true,false);
+  }
 
   const fd = new FormData();
-
   fd.append("message", msg);
   fd.append("chat_id", current);
 
   if(selectedFile){
     fd.append("file", selectedFile);
   }
+
+  input.value = "";
+  preview.innerHTML = "";
+
+  selectedFile = null;
 
   try{
 
@@ -368,16 +409,85 @@ form.addEventListener("submit", async(e)=>{
 
     const data = await res.json();
 
-    if(data.type==="image"){
-      bubbleImage(data.url);
-    }else{
-      bubble(data.reply || "No response");
+    // LOCK CHAT
+    if(data.type === "limit_chat"){
+      chatLocked = true;
+      dimButton(sendBtn);
+      bubble("Daily chat limit reached.","bot",true,false);
+      return;
     }
 
-  }catch{
+    // LOCK FILE
+    if(data.type === "limit_file"){
+      fileLocked = true;
+      dimButton(uploadBtn);
+      bubble("Daily file upload limit reached.","bot",true,false);
+      return;
+    }
+
+    // LOCK IMAGE
+    if(data.type === "limit_image"){
+      imageLocked = true;
+      bubble("Daily image generation limit reached.","bot",true,false);
+      return;
+    }
+
+    // IMAGE
+    if(data.type === "image"){
+
+      const loading = creatingImageBubble();
+
+      setTimeout(()=>{
+        loading.remove();
+        imageDoneBubble(data.url);
+      },10000);
+
+      return;
+    }
+
+    // NORMAL
+    bubble(data.reply || "No response");
+
+  }catch(err){
+
     bubble("Connection error.","bot",true,false);
   }
 
+});
+
+// =========================
+// ENTER SEND
+// =========================
+input.addEventListener("keydown",(e)=>{
+
+  if(e.key==="Enter" && !e.shiftKey){
+
+    e.preventDefault();
+
+    if(chatLocked) return;
+
+    form.requestSubmit();
+  }
+});
+
+// =========================
+// FILE
+// =========================
+fileInput.addEventListener("change",()=>{
+
+  if(fileLocked) return;
+
+  const f = fileInput.files[0];
+
+  if(!f) return;
+
+  selectedFile = f;
+
+  preview.innerHTML = `
+    <div class="preview-card">
+      📎 ${esc(f.name)}
+    </div>
+  `;
 });
 
 // =========================
@@ -388,11 +498,8 @@ function movePrivate(id){
   const pin = localStorage.getItem("neuromv_pin");
 
   if(!pin){
-
     alert("Create PIN first");
-
     setPinPrompt();
-
     return;
   }
 
@@ -403,32 +510,24 @@ function movePrivate(id){
     return;
   }
 
-  const index = chats.findIndex(
-    x => x.id === id
-  );
+  const index = chats.findIndex(x=>x.id===id);
 
-  if(index === -1) return;
+  if(index===-1) return;
 
   const chat = chats[index];
-
   chat.private = true;
 
   privateChats.unshift(chat);
-
   chats.splice(index,1);
 
-  if(current === id){
-    current = null;
-  }
+  if(current===id) current = null;
 
   saveData();
-
   renderHistory();
   renderChat();
   updatePrivateCount();
 }
 
-// OPEN PRIVATE LIST
 function openPrivate(){
 
   const pin = localStorage.getItem("neuromv_pin");
@@ -447,52 +546,32 @@ function openPrivate(){
 
   historyBox.innerHTML = "";
 
-  if(privateChats.length === 0){
-
-    historyBox.innerHTML = `
-      <div class="history-item">
-        No private chats
-      </div>
-    `;
-
+  if(privateChats.length===0){
+    historyBox.innerHTML = `<div class="history-item">No private chats</div>`;
     return;
   }
 
-  privateChats.forEach(c => {
+  privateChats.forEach(c=>{
 
     const item = document.createElement("div");
-
     item.className = "history-item";
 
     item.innerHTML = `
       <div class="history-top">
-
-        <div class="history-title">
-          🔒 ${esc(c.title)}
-        </div>
-
-        <button class="icon-btn">
-          ⋮
-        </button>
-
+        <div class="history-title">🔒 ${esc(c.title)}</div>
+        <button class="icon-btn">⋮</button>
       </div>
     `;
 
-    // OPEN CHAT
     item.onclick = ()=>{
-
       current = c.id;
-
       renderPrivateChat(c);
     };
 
-    // MENU
     const btn = item.querySelector(".icon-btn");
 
     btn.onclick = (e)=>{
-
       e.stopPropagation();
-
       togglePrivateMenu(c.id, btn);
     };
 
@@ -500,17 +579,16 @@ function openPrivate(){
   });
 }
 
-// PRIVATE CHAT VIEW
 function renderPrivateChat(chat){
 
   chatBox.innerHTML = "";
 
   chat.msg.forEach(m=>{
 
-    if(m.type === "image"){
-      bubbleImage(m.url, m.role, false);
+    if(m.type==="image"){
+      bubbleImage(m.url,m.role,false);
     }else{
-      bubble(m.text, m.role, false, false);
+      bubble(m.text,m.role,false,false);
     }
 
   });
@@ -518,47 +596,34 @@ function renderPrivateChat(chat){
   scrollBottom();
 }
 
-// PRIVATE MENU
 function togglePrivateMenu(id, btn){
 
   closeMenus();
 
   const menu = document.createElement("div");
-
   menu.className = "mini-menu";
 
   menu.innerHTML = `
-    <button class="restore-btn">
-      🔓 Unprivate
-    </button>
-
-    <button class="delete-btn">
-      🗑 Delete
-    </button>
+    <button class="restore-btn">🔓 Unprivate</button>
+    <button class="delete-btn">🗑 Delete</button>
   `;
 
   btn.parentElement.appendChild(menu);
 
   menu.querySelector(".restore-btn").onclick = (e)=>{
-
     e.stopPropagation();
-
     restorePrivate(id);
   };
 
   menu.querySelector(".delete-btn").onclick = (e)=>{
-
     e.stopPropagation();
-
     askDelete(id);
   };
 }
 
-// RESTORE
 function restorePrivate(id){
 
   const pin = localStorage.getItem("neuromv_pin");
-
   const ask = prompt("Enter PIN");
 
   if(ask !== pin){
@@ -566,23 +631,20 @@ function restorePrivate(id){
     return;
   }
 
-  const index = privateChats.findIndex(
-    x => x.id === id
-  );
+  const index = privateChats.findIndex(x=>x.id===id);
 
-  if(index === -1) return;
+  if(index===-1) return;
 
   const chat = privateChats[index];
 
   chat.private = false;
 
   chats.unshift(chat);
-
   privateChats.splice(index,1);
 
   saveData();
-
   renderHistory();
+  renderChat();
   updatePrivateCount();
 }
 
@@ -590,11 +652,8 @@ function restorePrivate(id){
 // PIN
 // =========================
 function setPinPrompt(){
-
   pinModal.classList.remove("hidden");
-
   pinInput.value = "";
-
   pinText.innerText = "Create New PIN";
 }
 
@@ -607,7 +666,6 @@ function submitPin(){
   localStorage.setItem("neuromv_pin", val);
 
   alert("PIN saved");
-
   closePin();
 }
 
@@ -619,9 +677,7 @@ function closePin(){
 // RENAME
 // =========================
 function openRename(id){
-
   renameTarget = id;
-
   renameModal.classList.remove("hidden");
 }
 
@@ -632,19 +688,14 @@ function closeRename(){
 function saveRename(){
 
   const val = renameInput.value.trim();
-
   if(!val) return;
 
   const c = chats.find(x=>x.id===renameTarget);
 
-  if(c){
-    c.title = val;
-  }
+  if(c) c.title = val;
 
   saveData();
-
   renderHistory();
-
   closeRename();
 }
 
@@ -652,9 +703,7 @@ function saveRename(){
 // DELETE
 // =========================
 function askDelete(id){
-
   deleteTarget = id;
-
   deleteModal.classList.remove("hidden");
 }
 
@@ -665,16 +714,11 @@ function closeDelete(){
 function confirmDelete(){
 
   chats = chats.filter(x=>x.id!==deleteTarget);
-
-  privateChats = privateChats.filter(
-    x=>x.id!==deleteTarget
-  );
+  privateChats = privateChats.filter(x=>x.id!==deleteTarget);
 
   saveData();
-
   renderHistory();
   renderChat();
-
   closeDelete();
 }
 
@@ -682,16 +726,12 @@ function confirmDelete(){
 // MOBILE
 // =========================
 function toggleSidebar(){
-
   sidebar.classList.toggle("show");
-
   overlay.classList.toggle("hidden");
 }
 
 function closeSidebarMobile(){
-
   sidebar.classList.remove("show");
-
   overlay.classList.add("hidden");
 }
 
@@ -699,7 +739,6 @@ function closeSidebarMobile(){
 // MORE MENU
 // =========================
 function toggleMoreMenu(){
-
   moreMenu.classList.toggle("hidden");
 }
 
@@ -708,8 +747,7 @@ function updatePrivateCount(){
   const el = document.querySelector(".private-chats");
 
   if(el){
-    el.innerText =
-      `Private Chats: ${privateChats.length}`;
+    el.innerText = `Private Chats: ${privateChats.length}`;
   }
 }
 
