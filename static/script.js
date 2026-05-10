@@ -1,6 +1,7 @@
 // =========================
-// NEUROMV ULTRA FINAL V2
+// NEUROMV ULTRA FINAL V3
 // FULL STABLE SCRIPT.JS
+// KEEP ALL FEATURES + SMART CURSOR AI
 // =========================
 
 // =========================
@@ -35,11 +36,7 @@ const renameModal = document.getElementById("renameModal");
 const renameInput = document.getElementById("renameInput");
 
 const deleteModal = document.getElementById("deleteModal");
-
 const pinModal = document.getElementById("pinModal");
-const pinInput = document.getElementById("pinInput");
-
-const moreMenu = document.getElementById("moreMenu");
 
 const sendBtn = document.getElementById("sendBtn");
 const uploadBtn = document.querySelector(".upload-btn");
@@ -71,7 +68,7 @@ function currentChat(){
 function scrollBottom(){
   setTimeout(()=>{
     chatBox.scrollTop = chatBox.scrollHeight;
-  },50);
+  },40);
 }
 
 function dimButton(el){
@@ -80,16 +77,12 @@ function dimButton(el){
   el.style.pointerEvents = "none";
 }
 
-function normalButton(el){
-  if(!el) return;
-  el.style.opacity = "1";
-  el.style.pointerEvents = "auto";
-}
-
 // =========================
-// NEW CHAT
+// CHAT SYSTEM
 // =========================
 function newChat(){
+
+  closeMenus();
 
   const c = {
     id: uid(),
@@ -106,9 +99,6 @@ function newChat(){
   renderChat();
 }
 
-// =========================
-// AUTO FIRST CHAT
-// =========================
 function ensureChat(){
   if(chats.length === 0){
     newChat();
@@ -136,9 +126,7 @@ function renderHistory(){
 
     div.innerHTML = `
       <div class="history-top">
-        <div class="history-title">
-          ${c.private ? "🔒 " : ""}${esc(c.title)}
-        </div>
+        <div class="history-title">${esc(c.title)}</div>
         <button class="icon-btn">⋮</button>
       </div>
     `;
@@ -163,7 +151,7 @@ function renderHistory(){
 }
 
 // =========================
-// MENU
+// MENUS
 // =========================
 function closeMenus(){
   document.querySelectorAll(".mini-menu").forEach(x=>x.remove());
@@ -185,14 +173,9 @@ function toggleMenu(id, btn){
   btn.parentElement.appendChild(menu);
 }
 
-// =========================
-// TOP CHAT MENU
-// =========================
 function toggleMoreMenu(){
 
   closeMenus();
-
-  if(!current) return;
 
   const old = document.getElementById("chatTopMenu");
   if(old){
@@ -216,7 +199,6 @@ function toggleMoreMenu(){
 
   if(btn){
     const r = btn.getBoundingClientRect();
-
     menu.style.position = "fixed";
     menu.style.top = (r.bottom + 8) + "px";
     menu.style.right = "12px";
@@ -231,8 +213,6 @@ document.addEventListener("click",(e)=>{
     !e.target.closest(".dots-btn")
   ){
     closeMenus();
-    const top = document.getElementById("chatTopMenu");
-    if(top) top.remove();
   }
 });
 
@@ -244,10 +224,8 @@ function renderChat(){
   chatBox.innerHTML = "";
 
   const c = currentChat();
-
   if(!c) return;
 
-  // welcome only if chat empty
   if(c.msg.length === 0){
     chatBox.innerHTML = `
       <div class="welcome">
@@ -285,20 +263,28 @@ function bubble(text, role="bot", save=true, typing=true){
   row.appendChild(box);
   chatBox.appendChild(row);
 
-  if(typing && role==="bot"){
+  if(role==="bot" && typing){
 
     let i = 0;
 
-    function type(){
-      if(i < text.length){
-        box.innerHTML += esc(text[i]);
+    function stream(){
+
+      if(i <= text.length){
+
+        box.innerHTML =
+          esc(text.slice(0,i)) +
+          `<span class="ai-cursor"></span>`;
+
         i++;
         scrollBottom();
-        setTimeout(type,8);
+        setTimeout(stream,12);
+
+      }else{
+        box.innerText = text;
       }
     }
 
-    type();
+    stream();
 
   }else{
     box.innerText = text;
@@ -316,7 +302,7 @@ function bubble(text, role="bot", save=true, typing=true){
         type:"text"
       });
 
-      if(c.msg.length===1 && role==="user"){
+      if(c.msg.length === 1 && role==="user"){
         c.title = text.slice(0,30);
       }
 
@@ -326,6 +312,26 @@ function bubble(text, role="bot", save=true, typing=true){
   }
 
   scrollBottom();
+}
+
+// =========================
+// THINKING DOT
+// =========================
+function thinkingBubble(){
+
+  const row = document.createElement("div");
+  row.className = "bot-row thinking-row";
+
+  row.innerHTML = `
+    <div class="bot-bubble">
+      <span class="thinking-dot"></span>
+    </div>
+  `;
+
+  chatBox.appendChild(row);
+  scrollBottom();
+
+  return row;
 }
 
 // =========================
@@ -371,7 +377,7 @@ function creatingImageBubble(){
   row.className = "bot-row";
 
   row.innerHTML = `
-    <div class="bot-bubble">🎨 Creating Image...</div>
+    <div class="bot-bubble">Creating Image...</div>
   `;
 
   chatBox.appendChild(row);
@@ -410,7 +416,7 @@ function imageDoneBubble(url){
 }
 
 // =========================
-// SEND MESSAGE
+// SEND
 // =========================
 form.addEventListener("submit", async(e)=>{
 
@@ -423,6 +429,9 @@ form.addEventListener("submit", async(e)=>{
   if(!msg && !selectedFile) return;
 
   if(!current) newChat();
+
+  const welcome = chatBox.querySelector(".welcome");
+  if(welcome) welcome.remove();
 
   if(msg){
     bubble(msg,"user",true,false);
@@ -440,6 +449,8 @@ form.addEventListener("submit", async(e)=>{
   preview.innerHTML = "";
   selectedFile = null;
 
+  const loading = thinkingBubble();
+
   try{
 
     const res = await fetch("/chat",{
@@ -448,6 +459,8 @@ form.addEventListener("submit", async(e)=>{
     });
 
     const data = await res.json();
+
+    loading.remove();
 
     if(data.type==="limit_chat"){
       chatLocked = true;
@@ -471,32 +484,32 @@ form.addEventListener("submit", async(e)=>{
 
     if(data.type==="image"){
 
-      const loading = creatingImageBubble();
+      const imgLoad = creatingImageBubble();
 
       setTimeout(()=>{
-        loading.remove();
+        imgLoad.remove();
         imageDoneBubble(data.url);
-      },10000);
+      },4000);
 
       return;
     }
 
-    bubble(data.reply || "No response");
+    bubble(data.reply || "No response","bot",true,true);
 
   }catch(err){
 
+    loading.remove();
     bubble("Connection error.","bot",true,false);
   }
 
 });
 
 // =========================
-// ENTER = SEND
+// ENTER SEND
 // =========================
 input.addEventListener("keydown",(e)=>{
 
   if(e.key==="Enter" && !e.shiftKey){
-
     e.preventDefault();
 
     if(chatLocked) return;
@@ -506,7 +519,7 @@ input.addEventListener("keydown",(e)=>{
 });
 
 // =========================
-// FILE PICK
+// FILE
 // =========================
 fileInput.addEventListener("change",()=>{
 
