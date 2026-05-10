@@ -380,7 +380,7 @@ body{
 
 /* AI style like ChatGPT (no bubble box) */
 .bot-bubble{
-  max-width:100%;
+  max-width:85%;
   padding:2px 0;
   background:transparent;
   line-height:1.7;
@@ -648,5 +648,42 @@ body{
 
   .chat-area{
     padding-bottom:150px;
+  }
+}
+
+/* =========================
+   AI STREAM CURSOR
+========================= */
+
+.ai-cursor{
+  display:inline-block;
+  width:10px;
+  height:10px;
+  margin-left:4px;
+  border-radius:50%;
+  background:#fff;
+  vertical-align:middle;
+  animation:aiBlink .8s infinite;
+}
+
+/* thinking bubble */
+.thinking-dot{
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:#fff;
+  display:inline-block;
+  animation:aiBlink .8s infinite;
+}
+
+@keyframes aiBlink{
+  0%,100%{
+    opacity:1;
+    transform:scale(1);
+  }
+
+  50%{
+    opacity:.2;
+    transform:scale(.7);
   }
 }
