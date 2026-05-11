@@ -761,3 +761,76 @@ body{
   background:#2d333b;
   border-radius:999px;
 }
+
+/* =========================
+   SUPER PREMIUM CODE BLOCK
+========================= */
+
+.code-wrap{
+  margin-top:12px;
+  margin-bottom:12px;
+  border-radius:18px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.07);
+  background:#0d1117;
+}
+
+.code-head{
+  height:46px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 14px;
+  background:#161b22;
+  border-bottom:1px solid rgba(255,255,255,.06);
+}
+
+.code-head span{
+  color:#8b949e;
+  font-size:13px;
+  font-weight:700;
+  text-transform:capitalize;
+}
+
+.copy-btn{
+  width:34px;
+  height:34px;
+  border:none;
+  background:transparent;
+  border-radius:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+}
+
+.copy-btn:hover{
+  background:rgba(255,255,255,.06);
+}
+
+.copy-btn svg{
+  width:18px;
+  height:18px;
+  stroke:#8b949e;
+  stroke-width:1.8;
+}
+
+.copy-btn.copied svg{
+  stroke:#3fb950;
+}
+
+.code-wrap pre{
+  margin:0;
+  padding:16px;
+  overflow:auto;
+  font-size:14px;
+  line-height:1.65;
+}
+
+/* inline code */
+.bot-bubble code:not(pre code){
+  background:#1f2430;
+  color:#ffd866;
+  padding:2px 7px;
+  border-radius:8px;
+}

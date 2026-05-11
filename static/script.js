@@ -1,7 +1,6 @@
 // =========================
-// NEUROMV PREMIUM FINAL
-// FULL STABLE + MARKDOWN + PRIVATE + MOBILE
-// Sync with current HTML/CSS/app.py
+// NEUROMV FINAL SCRIPT.JS
+// FULL PREMIUM + PRIVATE + MARKDOWN + COPY
 // =========================
 
 // =========================
@@ -44,86 +43,99 @@ const pinText = document.getElementById("pinText");
 // =========================
 // HELPERS
 // =========================
-function uid() {
-  return "c" + Date.now() + Math.floor(Math.random() * 99999);
+function uid(){
+  return "c" + Date.now() + Math.floor(Math.random()*99999);
 }
 
-function esc(t) {
+function esc(t){
   return String(t)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;");
 }
 
-function saveData() {
+function saveData(){
   localStorage.setItem("neuromv_chats", JSON.stringify(chats));
   localStorage.setItem("neuromv_private", JSON.stringify(privateChats));
   localStorage.setItem("neuromv_current", current || "");
 }
 
-function currentChat() {
+function currentChat(){
   return chats.find(x => x.id === current);
 }
 
-function scrollBottom() {
-  setTimeout(() => {
+function scrollBottom(){
+  setTimeout(()=>{
     chatBox.scrollTop = chatBox.scrollHeight;
-  }, 30);
+  },30);
 }
 
-function closeMenus() {
-  document.querySelectorAll(".mini-menu,#sidebarFooterMenu").forEach(x => x.remove());
+function closeMenus(){
+  document.querySelectorAll(".mini-menu").forEach(x=>x.remove());
 }
 
 // =========================
 // MARKDOWN PREMIUM
 // =========================
-function parseMarkdown(text) {
+function parseMarkdown(text){
   let html = esc(text);
 
-  html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
+  html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (_,lang,code)=>{
+    const language = lang || "text";
+    const id = "c" + Math.random().toString(36).slice(2,8);
+
     return `
       <div class="code-wrap">
         <div class="code-head">
-          <span>${lang || "Code"}</span>
-          <button onclick="copyCode(this)">Copy</button>
+          <span>${language}</span>
+          <button class="copy-btn" onclick="copyCode('${id}',this)">📋</button>
         </div>
-        <pre><code>${esc(code.trim())}</code></pre>
+        <pre><code id="${id}" class="language-${language}">${esc(code.trim())}</code></pre>
       </div>
     `;
   });
 
-  html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/\*(.*?)\*/g, "<em>$1</em>");
-  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
-  html = html.replace(/\n/g, "<br>");
+  html = html.replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>");
+  html = html.replace(/\*(.*?)\*/g,"<em>$1</em>");
+  html = html.replace(/`([^`]+)`/g,"<code>$1</code>");
+  html = html.replace(/\n/g,"<br>");
 
   return html;
 }
 
-function copyCode(btn) {
-  const code = btn.parentElement.nextElementSibling.innerText;
-  navigator.clipboard.writeText(code);
-  btn.innerText = "Copied!";
-  setTimeout(() => btn.innerText = "Copy", 1200);
+function applyHighlight(){
+  if(window.hljs){
+    document.querySelectorAll("pre code").forEach(el=>{
+      hljs.highlightElement(el);
+    });
+  }
+}
+
+function copyCode(id,btn){
+  const code = document.getElementById(id).innerText;
+
+  navigator.clipboard.writeText(code).then(()=>{
+    btn.innerText = "✓";
+    setTimeout(()=>btn.innerText="📋",1200);
+  });
 }
 
 // =========================
-// INIT CHAT
+// INIT
 // =========================
-function ensureChat() {
-  if (chats.length === 0) {
+function ensureChat(){
+  if(chats.length===0){
     newChat();
-  } else if (!current) {
+  }else if(!current){
     current = chats[0].id;
   }
 }
 
-function newChat() {
+function newChat(){
   const c = {
     id: uid(),
-    title: "New Chat",
-    msg: []
+    title:"New Chat",
+    msg:[]
   };
 
   chats.unshift(c);
@@ -138,14 +150,14 @@ function newChat() {
 // =========================
 // HISTORY
 // =========================
-function renderHistory() {
+function renderHistory(){
   historyBox.innerHTML = "";
 
-  chats.forEach(c => {
+  chats.forEach(c=>{
     const div = document.createElement("div");
     div.className = "history-item";
 
-    if (c.id === current) div.classList.add("active");
+    if(c.id===current) div.classList.add("active");
 
     div.innerHTML = `
       <div class="history-top">
@@ -154,7 +166,7 @@ function renderHistory() {
       </div>
     `;
 
-    div.onclick = () => {
+    div.onclick = ()=>{
       current = c.id;
       saveData();
       renderHistory();
@@ -162,9 +174,9 @@ function renderHistory() {
       closeSidebarMobile();
     };
 
-    div.querySelector(".icon-btn").onclick = (e) => {
+    div.querySelector(".icon-btn").onclick = (e)=>{
       e.stopPropagation();
-      openChatMenu(c.id, e.target);
+      openChatMenu(c.id,e.target);
     };
 
     historyBox.appendChild(div);
@@ -174,92 +186,69 @@ function renderHistory() {
 // =========================
 // MENUS
 // =========================
-function openChatMenu(id, btn) {
+function openChatMenu(id,btn){
   closeMenus();
 
   const menu = document.createElement("div");
   menu.className = "mini-menu";
 
   menu.innerHTML = `
-    <button onclick="openRename('${id}')">✏ Rename</button>
+    <button onclick="openRename('${id}',false)">✏ Rename</button>
     <button onclick="movePrivate('${id}')">🔒 Private</button>
-    <button onclick="askDelete('${id}')">🗑 Delete</button>
+    <button onclick="askDelete('${id}',false)">🗑 Delete</button>
   `;
 
   btn.parentElement.appendChild(menu);
 }
 
-function toggleMoreMenu() {
+function openPrivateMenu(id,btn){
+  closeMenus();
+
+  const menu = document.createElement("div");
+  menu.className = "mini-menu";
+
+  menu.innerHTML = `
+    <button onclick="openRename('${id}',true)">✏ Rename</button>
+    <button onclick="prepareUnprivate('${id}')">🔓 Unprivate</button>
+    <button onclick="askDelete('${id}',true)">🗑 Delete</button>
+  `;
+
+  btn.parentElement.appendChild(menu);
+}
+
+function toggleMoreMenu(){
   closeMenus();
 
   const btn = document.querySelector(".dots-btn");
-  if (!btn) return;
+  if(!btn) return;
 
   const r = btn.getBoundingClientRect();
 
   const menu = document.createElement("div");
   menu.className = "mini-menu";
   menu.style.position = "fixed";
-  menu.style.top = (r.bottom + 8) + "px";
-  menu.style.right = "12px";
+  menu.style.top = (r.bottom+8)+"px";
+  menu.style.right = "10px";
 
   menu.innerHTML = `
-    <button onclick="openRename('${current}')">✏ Rename</button>
+    <button onclick="openRename('${current}',false)">✏ Rename</button>
     <button onclick="movePrivate('${current}')">🔒 Private</button>
-    <button onclick="askDelete('${current}')">🗑 Delete</button>
+    <button onclick="askDelete('${current}',false)">🗑 Delete</button>
   `;
 
   document.body.appendChild(menu);
 }
 
-function toggleSidebarMenu(e) {
-  e.stopPropagation();
-
-  const old = document.getElementById("sidebarFooterMenu");
-  if (old) {
-    old.remove();
-    return;
-  }
-
-  closeMenus();
-
-  const menu = document.createElement("div");
-  menu.id = "sidebarFooterMenu";
-  menu.className = "more-menu";
-
-  menu.innerHTML = `
-    <div class="private-chats" onclick="openPrivate()">
-      Private Chats: ${privateChats.length}
-    </div>
-
-    <button onclick="setPinPrompt()">🔑 Change PIN</button>
-    <button onclick="closeMenus()">✕ Close</button>
-  `;
-
-  document.querySelector(".sidebar-footer").appendChild(menu);
-}
-
-document.addEventListener("click", (e) => {
-  if (
-    !e.target.closest(".mini-menu") &&
-    !e.target.closest(".icon-btn") &&
-    !e.target.closest(".dots-btn") &&
-    !e.target.closest(".more-menu")
-  ) {
-    closeMenus();
-  }
-});
-
 // =========================
 // CHAT VIEW
 // =========================
-function renderChat() {
+function renderChat(){
   chatBox.innerHTML = "";
 
   const c = currentChat();
-  if (!c) return;
+  if(!c) return;
 
-  if (c.msg.length === 0) {
+  if(c.msg.length===0){
     chatBox.innerHTML = `
       <div class="welcome">
         <h2>NeuroMV</h2>
@@ -269,62 +258,60 @@ function renderChat() {
     return;
   }
 
-  c.msg.forEach(m => {
-    if (m.type === "image") {
-      bubbleImage(m.url, false);
-    } else {
-      bubble(m.text, m.role, false, false);
+  c.msg.forEach(m=>{
+    if(m.type==="image"){
+      bubbleImage(m.url,false);
+    }else{
+      bubble(m.text,m.role,false,false);
     }
   });
 
+  applyHighlight();
   scrollBottom();
 }
 
 // =========================
 // BUBBLE
 // =========================
-function bubble(text, role = "bot", save = true, typing = false) {
+function bubble(text,role="bot",save=true,typing=false){
   const row = document.createElement("div");
-  row.className = role === "user" ? "user-row" : "bot-row";
+  row.className = role==="user" ? "user-row":"bot-row";
 
   const box = document.createElement("div");
-  box.className = role === "user" ? "user-bubble" : "bot-bubble";
+  box.className = role==="user" ? "user-bubble":"bot-bubble";
 
   row.appendChild(box);
   chatBox.appendChild(row);
 
-  if (typing && role === "bot") {
-    let i = 0;
+  if(typing && role==="bot"){
+    let i=0;
 
-    function run() {
-      if (i <= text.length) {
-        box.innerHTML =
-          parseMarkdown(text.slice(0, i)) +
-          `<span class="typing-cursor"></span>`;
+    function run(){
+      if(i<=text.length){
+        box.innerHTML = parseMarkdown(text.slice(0,i)) +
+        `<span class="typing-cursor"></span>`;
         i++;
         scrollBottom();
-        setTimeout(run, 10);
-      } else {
+        setTimeout(run,8);
+      }else{
         box.innerHTML = parseMarkdown(text);
+        applyHighlight();
       }
     }
 
     run();
-  } else {
-    box.innerHTML = role === "bot"
-      ? parseMarkdown(text)
-      : esc(text);
+  }else{
+    box.innerHTML = role==="bot" ? parseMarkdown(text) : esc(text);
+    applyHighlight();
   }
 
-  if (save) {
+  if(save){
     const c = currentChat();
-    if (c) {
-      c.msg.push({ role, text, type: "text" });
-
-      if (c.msg.length === 1 && role === "user") {
-        c.title = text.slice(0, 30);
+    if(c){
+      c.msg.push({role,text,type:"text"});
+      if(c.msg.length===1 && role==="user"){
+        c.title = text.slice(0,30);
       }
-
       saveData();
       renderHistory();
     }
@@ -333,7 +320,7 @@ function bubble(text, role = "bot", save = true, typing = false) {
   scrollBottom();
 }
 
-function bubbleImage(url, save = true) {
+function bubbleImage(url,save=true){
   const row = document.createElement("div");
   row.className = "bot-row";
 
@@ -345,10 +332,10 @@ function bubbleImage(url, save = true) {
 
   chatBox.appendChild(row);
 
-  if (save) {
+  if(save){
     const c = currentChat();
-    if (c) {
-      c.msg.push({ type: "image", url });
+    if(c){
+      c.msg.push({type:"image",url});
       saveData();
     }
   }
@@ -359,73 +346,61 @@ function bubbleImage(url, save = true) {
 // =========================
 // SEND
 // =========================
-form.addEventListener("submit", async (e) => {
+form.addEventListener("submit", async(e)=>{
   e.preventDefault();
 
   const msg = input.value.trim();
-  if (!msg && !selectedFile) return;
+  if(!msg && !selectedFile) return;
 
-  if (!current) newChat();
+  if(!current) newChat();
 
   const welcome = chatBox.querySelector(".welcome");
-  if (welcome) welcome.remove();
+  if(welcome) welcome.remove();
 
-  if (msg) bubble(msg, "user", true, false);
+  if(msg) bubble(msg,"user",true,false);
 
   const fd = new FormData();
-  fd.append("message", msg);
-  fd.append("chat_id", current);
+  fd.append("message",msg);
+  fd.append("chat_id",current);
 
-  if (selectedFile) fd.append("file", selectedFile);
+  if(selectedFile) fd.append("file",selectedFile);
 
   input.value = "";
   selectedFile = null;
   preview.innerHTML = "";
 
-  const loading = document.createElement("div");
-  loading.className = "bot-row";
-  loading.innerHTML = `<div class="bot-bubble"><span class="typing-cursor"></span></div>`;
-  chatBox.appendChild(loading);
+  const load = document.createElement("div");
+  load.className = "bot-row";
+  load.innerHTML = `<div class="bot-bubble"><span class="typing-cursor"></span></div>`;
+  chatBox.appendChild(load);
+
   scrollBottom();
 
-  try {
-    const res = await fetch("/chat", {
-      method: "POST",
-      body: fd
-    });
-
+  try{
+    const res = await fetch("/chat",{method:"POST",body:fd});
     const data = await res.json();
-    loading.remove();
 
-    if (data.type === "image") {
-      bubbleImage(data.url, true);
+    load.remove();
+
+    if(data.type==="image"){
+      bubbleImage(data.url,true);
       return;
     }
 
-    bubble(data.reply || "No response.", "bot", true, true);
+    bubble(data.reply || "No response.","bot",true,true);
 
-  } catch {
-    loading.remove();
-    bubble("Connection error.", "bot");
-  }
-});
-
-// =========================
-// ENTER SEND
-// =========================
-input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    form.requestSubmit();
+  }catch{
+    load.remove();
+    bubble("Connection error.","bot");
   }
 });
 
 // =========================
 // FILE
 // =========================
-fileInput.addEventListener("change", () => {
+fileInput.addEventListener("change",()=>{
   const f = fileInput.files[0];
-  if (!f) return;
+  if(!f) return;
 
   selectedFile = f;
 
@@ -435,49 +410,58 @@ fileInput.addEventListener("change", () => {
 });
 
 // =========================
-// RENAME
+// ENTER SEND
 // =========================
-function openRename(id) {
-  renameTarget = id;
+input.addEventListener("keydown",(e)=>{
+  if(e.key==="Enter" && !e.shiftKey){
+    e.preventDefault();
+    form.requestSubmit();
+  }
+});
+
+// =========================
+// RENAME / DELETE
+// =========================
+function openRename(id,isPrivate=false){
+  renameTarget = {id,isPrivate};
   renameInput.value = "";
   renameModal.classList.remove("hidden");
 }
 
-function closeRename() {
+function closeRename(){
   renameModal.classList.add("hidden");
 }
 
-function saveRename() {
+function saveRename(){
   const val = renameInput.value.trim();
-  if (!val) return;
+  if(!val) return;
 
-  const c = chats.find(x => x.id === renameTarget);
-  if (!c) return;
+  let arr = renameTarget.isPrivate ? privateChats : chats;
+  const c = arr.find(x=>x.id===renameTarget.id);
+  if(c) c.title = val;
 
-  c.title = val;
   saveData();
   renderHistory();
   closeRename();
 }
 
-// =========================
-// DELETE
-// =========================
-function askDelete(id) {
-  deleteTarget = id;
+function askDelete(id,isPrivate=false){
+  deleteTarget = {id,isPrivate};
   deleteModal.classList.remove("hidden");
 }
 
-function closeDelete() {
+function closeDelete(){
   deleteModal.classList.add("hidden");
 }
 
-function confirmDelete() {
-  chats = chats.filter(x => x.id !== deleteTarget);
-  privateChats = privateChats.filter(x => x.id !== deleteTarget);
-
-  if (current === deleteTarget) {
-    current = chats[0]?.id || "";
+function confirmDelete(){
+  if(deleteTarget.isPrivate){
+    privateChats = privateChats.filter(x=>x.id!==deleteTarget.id);
+  }else{
+    chats = chats.filter(x=>x.id!==deleteTarget.id);
+    if(current===deleteTarget.id){
+      current = chats[0]?.id || "";
+    }
   }
 
   saveData();
@@ -490,13 +474,13 @@ function confirmDelete() {
 // =========================
 // PRIVATE
 // =========================
-function movePrivate(id) {
+function movePrivate(id){
   pendingPrivateId = id;
 
-  if (!savedPin) {
+  if(!savedPin){
     pinMode = "create";
     pinText.innerText = "Create PIN";
-  } else {
+  }else{
     pinMode = "verify";
     pinText.innerText = "Enter PIN";
   }
@@ -505,11 +489,11 @@ function movePrivate(id) {
   pinModal.classList.remove("hidden");
 }
 
-function openPrivate() {
-  if (!savedPin) {
-    pinMode = "first";
+function openPrivate(){
+  if(!savedPin){
+    pinMode = "createOpen";
     pinText.innerText = "Create PIN";
-  } else {
+  }else{
     pinMode = "open";
     pinText.innerText = "Enter PIN";
   }
@@ -518,55 +502,51 @@ function openPrivate() {
   pinModal.classList.remove("hidden");
 }
 
-function setPinPrompt() {
-  pinMode = "change";
-  pinText.innerText = "Enter New PIN";
+function prepareUnprivate(id){
+  pendingPrivateId = id;
+  pinMode = "unprivate";
+  pinText.innerText = "Enter PIN";
   pinInput.value = "";
   pinModal.classList.remove("hidden");
 }
 
-function closePin() {
+function closePin(){
   pinModal.classList.add("hidden");
 }
 
-function submitPin() {
+function submitPin(){
   const val = pinInput.value.trim();
-  if (!val) return;
+  if(!val) return;
 
-  if (pinMode === "create" || pinMode === "first") {
+  if(pinMode==="create" || pinMode==="createOpen"){
     savedPin = val;
-    localStorage.setItem("neuromv_pin", savedPin);
+    localStorage.setItem("neuromv_pin",savedPin);
 
-    if (pinMode === "create") doPrivate();
+    if(pinMode==="create") doPrivate();
+    if(pinMode==="createOpen") showPrivate();
 
     closePin();
     return;
   }
 
-  if (pinMode === "change") {
-    savedPin = val;
-    localStorage.setItem("neuromv_pin", savedPin);
-    closePin();
-    return;
-  }
-
-  if (val !== savedPin) {
+  if(val!==savedPin){
     alert("Wrong PIN");
     return;
   }
 
-  if (pinMode === "verify") doPrivate();
-  if (pinMode === "open") showPrivate();
+  if(pinMode==="verify") doPrivate();
+  if(pinMode==="open") showPrivate();
+  if(pinMode==="unprivate") doUnprivate();
 
   closePin();
 }
 
-function doPrivate() {
-  const i = chats.findIndex(x => x.id === pendingPrivateId);
-  if (i === -1) return;
+function doPrivate(){
+  const i = chats.findIndex(x=>x.id===pendingPrivateId);
+  if(i===-1) return;
 
   privateChats.unshift(chats[i]);
-  chats.splice(i, 1);
+  chats.splice(i,1);
 
   current = chats[0]?.id || "";
 
@@ -575,27 +555,47 @@ function doPrivate() {
   renderChat();
 }
 
-function showPrivate() {
+function doUnprivate(){
+  const i = privateChats.findIndex(x=>x.id===pendingPrivateId);
+  if(i===-1) return;
+
+  chats.unshift(privateChats[i]);
+  privateChats.splice(i,1);
+
+  current = chats[0].id;
+
+  saveData();
+  renderHistory();
+  renderChat();
+}
+
+function showPrivate(){
   historyBox.innerHTML = "";
 
-  privateChats.forEach(c => {
+  privateChats.forEach(c=>{
     const div = document.createElement("div");
     div.className = "history-item";
 
     div.innerHTML = `
       <div class="history-top">
         <div class="history-title">🔒 ${esc(c.title)}</div>
+        <button class="icon-btn">⋮</button>
       </div>
     `;
 
-    div.onclick = () => {
+    div.onclick = ()=>{
       chats.unshift(c);
-      privateChats = privateChats.filter(x => x.id !== c.id);
+      privateChats = privateChats.filter(x=>x.id!==c.id);
       current = c.id;
 
       saveData();
       renderHistory();
       renderChat();
+    };
+
+    div.querySelector(".icon-btn").onclick = (e)=>{
+      e.stopPropagation();
+      openPrivateMenu(c.id,e.target);
     };
 
     historyBox.appendChild(div);
@@ -605,15 +605,28 @@ function showPrivate() {
 // =========================
 // MOBILE
 // =========================
-function toggleSidebar() {
+function toggleSidebar(){
   sidebar.classList.toggle("show");
   overlay.classList.toggle("hidden");
 }
 
-function closeSidebarMobile() {
+function closeSidebarMobile(){
   sidebar.classList.remove("show");
   overlay.classList.add("hidden");
 }
+
+// =========================
+// GLOBAL CLICK
+// =========================
+document.addEventListener("click",(e)=>{
+  if(
+    !e.target.closest(".mini-menu") &&
+    !e.target.closest(".icon-btn") &&
+    !e.target.closest(".dots-btn")
+  ){
+    closeMenus();
+  }
+});
 
 // =========================
 // START
