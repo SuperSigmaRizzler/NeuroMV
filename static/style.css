@@ -400,20 +400,35 @@ body{
    THINKING / CURSOR
 ========================= */
 
-.typing-cursor{
-  width:11px;
-  height:11px;
+.typing-cursor,
+.ai-cursor,
+.thinking-dot{
+  width:10px;
+  height:10px;
   border-radius:50%;
   background:#fff;
   display:inline-block;
   vertical-align:middle;
-  margin-left:5px;
-  animation:blink .9s infinite;
+  position:relative;
+  top:-1px;
+  margin-left:4px;
+  animation:pulseDot .9s ease-in-out infinite;
 }
 
-@keyframes blink{
-  0%,100%{opacity:1}
-  50%{opacity:.25}
+.thinking-dot{
+  margin-left:0;
+}
+
+@keyframes pulseDot{
+  0%,100%{
+    transform:scale(.75);
+    opacity:1;
+  }
+
+  50%{
+    transform:scale(1.25);
+    opacity:1;
+  }
 }
 
 /* =========================
@@ -686,4 +701,63 @@ body{
     opacity:.2;
     transform:scale(.7);
   }
+}
+
+/* =========================
+   PREMIUM CODE BLOCKS
+========================= */
+
+.code-wrap{
+  margin-top:10px;
+  border-radius:16px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.06);
+  background:#0d1117;
+}
+
+.code-top{
+  height:42px;
+  padding:0 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  background:#161b22;
+  border-bottom:1px solid rgba(255,255,255,.05);
+}
+
+.code-lang{
+  font-size:13px;
+  color:#9da7b8;
+  font-weight:600;
+}
+
+.copy-btn{
+  border:none;
+  background:#21262d;
+  color:#fff;
+  padding:6px 12px;
+  border-radius:10px;
+  font-size:13px;
+  cursor:pointer;
+}
+
+.copy-btn:hover{
+  background:#30363d;
+}
+
+.code-wrap pre{
+  margin:0;
+  padding:16px;
+  overflow:auto;
+  font-size:14px;
+  line-height:1.6;
+}
+
+.code-wrap pre::-webkit-scrollbar{
+  height:8px;
+}
+
+.code-wrap pre::-webkit-scrollbar-thumb{
+  background:#2d333b;
+  border-radius:999px;
 }

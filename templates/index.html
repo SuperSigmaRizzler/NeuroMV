@@ -14,7 +14,7 @@
 ========================= -->
 <div id="pinModal" class="modal hidden">
   <div class="modal-card">
-    <h2>🔒 Change PIN</h2>
+    <h2>🔒 PIN Access</h2>
     <p id="pinText">Enter your PIN</p>
 
     <input
@@ -107,26 +107,9 @@
         🔒 Private
       </button>
 
-      <button class="menu-btn" onclick="toggleSidebarMenu(event)">
+      <button class="menu-btn" onclick="toggleMoreMenu()">
         ⋮
       </button>
-
-      <!-- popup -->
-      <div id="moreMenu" class="more-menu hidden">
-
-        <div class="private-chats" onclick="openPrivate()">
-          Private Chats: 0
-        </div>
-
-        <button onclick="setPinPrompt()">
-          🔑 Change PIN
-        </button>
-
-        <button onclick="toggleMoreMenu()">
-          ✕ Close
-        </button>
-
-      </div>
 
     </div>
 
