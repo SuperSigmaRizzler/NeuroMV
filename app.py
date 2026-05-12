@@ -6,6 +6,11 @@ import json
 import hashlib
 import random
 import re
+import io
+import csv
+import zipfile
+from urllib.parse import quote
+from bs4 import BeautifulSoup
 
 # ==================================================
 # APP
@@ -18,23 +23,18 @@ app.secret_key = os.getenv("SECRET_KEY", "neuromv-pro-secret-key")
 # ==================================================
 DAILY_LIMIT = 100
 IMAGE_LIMIT = 5
-FILE_LIMIT = 5
-
-MEMORY_SIZE = 10
-PROFILE_FILE = "user_profiles.json"
-PIN_FILE = "pin_db.json"
-
+FILE_LIMIT = 10
+MEMORY_SIZE = 30
 REQUEST_TIMEOUT = 20
 
 # ==================================================
-# PROVIDER KEYS
+# API KEYS
 # ==================================================
 def split_keys(name):
     raw = os.getenv(name, "")
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 GROQ_KEYS = split_keys("GROQ_API_KEYS") or split_keys("GROQ_API_KEY")
-GEMINI_KEYS = split_keys("GEMINI_API_KEYS") or split_keys("GEMINI_API_KEY")
 CEREBRAS_KEYS = split_keys("CEREBRAS_API_KEYS") or split_keys("CEREBRAS_API_KEY")
 
 # ==================================================
@@ -44,38 +44,29 @@ SYSTEM_PROMPT = """
 You are NeuroMV, a premium AI assistant created by Marvell Jonathan Siau.
 
 Rules:
-- Smart, accurate, natural.
 - Match user's language automatically.
-- Helpful for coding, reasoning, school, business, writing.
-- If unsure, be honest.
-- Never act robotic.
-- Keep answers useful and clean.
+- Smart, natural, modern, helpful.
+- Great at coding, school, business, logic.
+- Use clean formatting.
+- If user sounds formal, answer formal.
+- If user sounds casual, answer casual.
 """
 
 # ==================================================
-# HELPERS
+# OPTIONAL FILE LIBS
 # ==================================================
-def read_json(path, default):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return default
+try:
+    import PyPDF2
+except:
+    PyPDF2 = None
 
-def write_json(path, data):
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-    except:
-        pass
-
-def uid():
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "")
-    ua = request.headers.get("User-Agent", "")
-    return hashlib.md5((ip + ua).encode()).hexdigest()
+try:
+    import docx
+except:
+    docx = None
 
 # ==================================================
-# DAILY LIMIT
+# BASIC
 # ==================================================
 def today():
     return int(time.time() // 86400)
@@ -87,18 +78,14 @@ def ensure_daily():
         session["image_count"] = 0
         session["file_count"] = 0
 
-def add_chat():
-    ensure_daily()
-    session["chat_count"] += 1
+def uid():
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "")
+    ua = request.headers.get("User-Agent", "")
+    return hashlib.md5((ip + ua).encode()).hexdigest()
 
-def add_image():
-    ensure_daily()
-    session["image_count"] += 1
-
-def add_file():
-    ensure_daily()
-    session["file_count"] += 1
-
+# ==================================================
+# LIMIT
+# ==================================================
 def over_chat():
     ensure_daily()
     return session["chat_count"] >= DAILY_LIMIT
@@ -111,21 +98,14 @@ def over_file():
     ensure_daily()
     return session["file_count"] >= FILE_LIMIT
 
-# ==================================================
-# PROFILE
-# ==================================================
-def get_profile():
-    db = read_json(PROFILE_FILE, {})
-    u = uid()
+def add_chat():
+    session["chat_count"] += 1
 
-    if u not in db:
-        db[u] = {
-            "name": "",
-            "likes": []
-        }
-        write_json(PROFILE_FILE, db)
+def add_image():
+    session["image_count"] += 1
 
-    return db[u]
+def add_file():
+    session["file_count"] += 1
 
 # ==================================================
 # MEMORY
@@ -143,119 +123,43 @@ def get_mem(cid):
 
 def push(cid, role, text):
     arr = get_mem(cid)
-
     arr.append({
         "role": role,
-        "text": text[:1200]
+        "text": text[:4000]
     })
-
-    if len(arr) > MEMORY_SIZE:
-        arr = arr[-MEMORY_SIZE:]
-
-    session["mem"][cid] = arr
-
+    session["mem"][cid] = arr[-MEMORY_SIZE:]
+    session.modified = True
 
 # ==================================================
-# ADVANCED BLOCK WORDS (100+) MULTI LANGUAGE
-# Anti bypass: 0=o, 1=i/l, 3=e, 4=a, 5=s, 7=t, etc
+# BLOCK WORDS
 # ==================================================
-
 LEET_MAP = str.maketrans({
-    "0":"o",
-    "1":"i",
-    "3":"e",
-    "4":"a",
-    "5":"s",
-    "6":"g",
-    "7":"t",
-    "8":"b",
-    "9":"g",
-    "@":"a",
-    "$":"s",
-    "!":"i"
+    "0":"o","1":"i","3":"e","4":"a","5":"s","7":"t","@":"a","$":"s"
 })
 
 BLOCK_WORDS = [
-
-# sexual / exploitative
-"porn","porno","pornography","xxx","sex","seks","sexual","nude","nudity",
-"naked","hentai","bokep","jav","xnxx","xvideo","onlyfans","camgirl",
-"camsex","fetish","blowjob","handjob","deepthroat","milf","bdsm",
-"rape","rapist","molest","molestation","incest","pedophile","pedo",
-"childporn","cp","underage sex","loli","bestiality",
-
-# self harm
-"suicide","kill myself","self harm","cut myself","hang myself",
-"overdose","end my life","want to die","bunuh diri","gantung diri",
-"melukai diri","mati saja","akhiri hidup",
-
-# violence / weapons
-"murder","kill someone","assassinate","stab","shoot","massacre",
-"bomb","grenade","terrorist","terrorism","explode","how to kill",
-"membunuh","bunuh orang","tembak","tikam","bom","rakit bom",
-"senjata api","granat","teroris",
-
-# cybercrime
-"phishing","keylogger","malware","ransomware","trojan","rat virus",
-"ddos","sql injection","steal password","hack account","hack ig",
-"hack gmail","hack whatsapp","carding","otp bypass","bruteforce",
-"bobol akun","retas akun","curi password","hack wifi",
-
-# drugs
-"cocaine","heroin","meth","weed","marijuana","ganja","lsd",
-"ecstasy","mdma","drug lab","make meth","narkoba","sabu","putaw",
-
-# fraud / illegal
-"fake id","forged passport","counterfeit money","money laundering",
-"dark web","buy organs","stolen credit card","jual data curian",
-
-# Arabic
-"قتل","انتحار","إباحية","قنبلة","اختراق","مخدرات","اغتصاب",
-
-# Chinese
-"色情","自杀","炸弹","黑客","毒品","强奸","杀人",
-
-# Japanese
-"ポルノ","自殺","爆弾","ハッキング","麻薬","レイプ","殺人",
-
-# Korean
-"포르노","자살","폭탄","해킹","마약","강간","살인",
-
-# Russian
-"порно","самоубийство","бомба","взлом","наркотики","изнасилование","убить",
-
-# Spanish
-"porno","suicidio","bomba","hackear","drogas","violacion","matar",
-
-# French
-"porno","suicide","bombe","piratage","drogue","viol","tuer"
+    "porn","porno","sex","sexy","nude","bokep","xnxx",
+    "kill myself","suicide","bunuh diri",
+    "hack account","phishing","ddos",
+    "bomb","terrorist",
+    "cocaine","heroin","meth","ganja"
 ]
 
 def normalize_text(text):
-    text = text.lower()
-    text = text.translate(LEET_MAP)
-
-    # remove separators / punctuation / spaces
+    text = text.lower().translate(LEET_MAP)
     text = re.sub(r"[\W_]+", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-
-    return text
+    return re.sub(r"\s+", " ", text).strip()
 
 def blocked(msg):
     t = normalize_text(msg)
-
-    for word in BLOCK_WORDS:
-        if word in t:
-            return True
-
-    return False 
+    return any(x in t for x in BLOCK_WORDS)
 
 # ==================================================
 # IMAGE
 # ==================================================
 IMAGE_WORDS = [
-    "image","gambar","foto","photo",
-    "draw","buat gambar","logo","poster"
+    "image","gambar","foto","draw","anime",
+    "poster","logo","art","illustration"
 ]
 
 def want_image(msg):
@@ -263,23 +167,146 @@ def want_image(msg):
     return any(x in low for x in IMAGE_WORDS)
 
 def make_image(prompt):
-    safe = prompt.replace(" ", "%20")
+    pretty = (
+        "masterpiece, best quality, ultra detailed, "
+        "sharp focus, beautiful lighting, " + prompt
+    )
+    safe = quote(pretty)
     return {
         "url": f"https://image.pollinations.ai/prompt/{safe}"
     }
 
 # ==================================================
-# PROMPT MESSAGES
+# WEB SEARCH REALTIME
+# ==================================================
+SEARCH_WORDS = [
+    "today","latest","news","harga","berapa",
+    "siapa sekarang","update","real time",
+    "baru","terbaru","current"
+]
+
+def need_search(msg):
+    low = msg.lower()
+    return any(x in low for x in SEARCH_WORDS)
+
+def web_search(query):
+    try:
+        url = "https://html.duckduckgo.com/html/?q=" + quote(query)
+
+        r = requests.get(
+            url,
+            headers={
+                "User-Agent":"Mozilla/5.0"
+            },
+            timeout=10
+        )
+
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        results = []
+
+        for a in soup.select(".result__a")[:5]:
+            title = a.get_text(" ", strip=True)
+            link = a.get("href", "")
+            results.append({
+                "title": title,
+                "link": link
+            })
+
+        return results
+
+    except:
+        return []
+
+# ==================================================
+# FILE READER
+# ==================================================
+def read_txt(data):
+    try:
+        txt = data.decode("utf-8", errors="ignore")
+        return txt[:5000]
+    except:
+        return "Unable to read text."
+
+def read_pdf(data):
+    if not PyPDF2:
+        return "PyPDF2 not installed."
+
+    try:
+        reader = PyPDF2.PdfReader(io.BytesIO(data))
+        out = []
+
+        for p in reader.pages[:10]:
+            out.append(p.extract_text() or "")
+
+        return "\n".join(out)[:5000]
+    except:
+        return "Failed to read PDF."
+
+def read_docx(data):
+    if not docx:
+        return "python-docx not installed."
+
+    try:
+        d = docx.Document(io.BytesIO(data))
+        return "\n".join(
+            [p.text for p in d.paragraphs]
+        )[:5000]
+    except:
+        return "Failed to read DOCX."
+
+def read_csv_file(data):
+    try:
+        txt = data.decode("utf-8", errors="ignore")
+        rows = list(csv.reader(io.StringIO(txt)))
+        out = []
+        for r in rows[:20]:
+            out.append(" | ".join(r))
+        return "\n".join(out)[:5000]
+    except:
+        return "Failed to read CSV."
+
+def read_zip(data):
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+        return "ZIP Contents:\n\n" + "\n".join(z.namelist()[:50])
+    except:
+        return "Failed to read ZIP."
+
+def smart_read_file(filename, data):
+    low = filename.lower()
+
+    if low.endswith(".pdf"):
+        return read_pdf(data)
+
+    if low.endswith(".docx"):
+        return read_docx(data)
+
+    if low.endswith(".csv"):
+        return read_csv_file(data)
+
+    if low.endswith(".zip"):
+        return read_zip(data)
+
+    if low.endswith((
+        ".txt",".py",".js",".html",".css",
+        ".json",".xml",".sql",".php",".cpp",".md"
+    )):
+        return read_txt(data)
+
+    return "Unsupported file type."
+
+# ==================================================
+# AI PROVIDER
 # ==================================================
 def build_messages(cid, msg):
     messages = [
         {"role":"system","content":SYSTEM_PROMPT}
     ]
 
-    history = get_mem(cid)
-
-    for x in history:
+    for x in get_mem(cid):
         role = "assistant" if x["role"] == "bot" else "user"
+
         messages.append({
             "role": role,
             "content": x["text"]
@@ -292,9 +319,6 @@ def build_messages(cid, msg):
 
     return messages
 
-# ==================================================
-# PROVIDERS
-# ==================================================
 def ask_groq(messages):
     if not GROQ_KEYS:
         return None
@@ -326,104 +350,15 @@ def ask_groq(messages):
 
     return None
 
-def ask_cerebras(messages):
-    if not CEREBRAS_KEYS:
-        return None
-
-    keys = CEREBRAS_KEYS[:]
-    random.shuffle(keys)
-
-    for key in keys:
-        try:
-            r = requests.post(
-                "https://api.cerebras.ai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {key}",
-                    "Content-Type":"application/json"
-                },
-                json={
-                    "model":"llama3.1-8b",
-                    "messages": messages
-                },
-                timeout=REQUEST_TIMEOUT
-            )
-
-            if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"].strip()
-
-        except:
-            pass
-
-    return None
-
-def ask_gemini(cid, msg):
-    if not GEMINI_KEYS:
-        return None
-
-    keys = GEMINI_KEYS[:]
-    random.shuffle(keys)
-
-    prompt = msg
-
-    for key in keys:
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
-
-            r = requests.post(
-                url,
-                json={
-                    "contents":[
-                        {"parts":[{"text":prompt}]}
-                    ]
-                },
-                timeout=REQUEST_TIMEOUT
-            )
-
-            if r.status_code == 200:
-                data = r.json()
-                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-        except:
-            pass
-
-    return None
-
 def ask_ai(cid, msg):
     messages = build_messages(cid, msg)
 
-    providers = [
-        lambda: ask_groq(messages),
-        lambda: ask_cerebras(messages),
-        lambda: ask_gemini(cid, msg)
-    ]
+    out = ask_groq(messages)
 
-    for fn in providers:
-        try:
-            out = fn()
-            if out and len(out.strip()) > 1:
-                return out.strip()
-        except:
-            pass
+    if out:
+        return out
 
-    return "Sorry, NeuroMV is temporarily unavailable. Please try again shortly."
-
-# ==================================================
-# FILE READER
-# ==================================================
-def read_image(_):
-    return "Image received successfully. I can analyze or describe it."
-
-def read_text(file_bytes):
-    try:
-        txt = file_bytes.decode("utf-8", errors="ignore")[:1800]
-
-        if not txt.strip():
-            return "This file appears empty."
-
-        return f"File content preview:\n\n{txt}\n\nWould you like a summary?"
-
-    except:
-        return "File received, but format isn't readable yet."
+    return "NeuroMV is temporarily unavailable."
 
 # ==================================================
 # ROUTES
@@ -434,31 +369,37 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
+    ensure_daily()
 
     cid = request.form.get("chat_id", "default")
     msg = request.form.get("message", "").strip()
-
-    # CHAT LIMIT
-    if over_chat():
-        return jsonify({"type":"limit_chat"})
 
     # FILE
     if "file" in request.files:
         f = request.files["file"]
 
         if f and f.filename:
-
             if over_file():
                 return jsonify({"type":"limit_file"})
 
             add_file()
 
             data = f.read()
+            content = smart_read_file(f.filename, data)
 
-            if f.filename.lower().endswith((".png",".jpg",".jpeg",".webp")):
-                reply = read_image(data)
+            if msg:
+                ask = f"""
+User uploaded file: {f.filename}
+
+File content:
+{content}
+
+User asks:
+{msg}
+"""
+                reply = ask_ai(cid, ask)
             else:
-                reply = read_text(data)
+                reply = f"📄 File: {f.filename}\n\n{content}"
 
             push(cid,"user","[file]")
             push(cid,"bot",reply)
@@ -484,7 +425,6 @@ def chat():
 
     # IMAGE
     if want_image(msg):
-
         if over_image():
             return jsonify({"type":"limit_image"})
 
@@ -494,10 +434,46 @@ def chat():
 
         return jsonify({
             "type":"image",
-            "url": img["url"]
+            "url":img["url"]
         })
 
+    # SEARCH MODE
+    if need_search(msg):
+        results = web_search(msg)
+
+        if results:
+            source_text = "\n\nSources:\n"
+            for r in results[:3]:
+                source_text += f"<a href='{r['link']}' target='_blank'>🌐</a> {r['title']}\n"
+
+            context = "\n".join(
+                [x["title"] for x in results[:5]]
+            )
+
+            ask = f"""
+User asked: {msg}
+
+Use these realtime web search results:
+{context}
+
+Answer naturally and accurately.
+"""
+
+            reply = ask_ai(cid, ask)
+            reply += source_text
+
+            push(cid,"user",msg)
+            push(cid,"bot",reply)
+
+            return jsonify({
+                "type":"text",
+                "reply":reply
+            })
+
     # NORMAL CHAT
+    if over_chat():
+        return jsonify({"type":"limit_chat"})
+
     reply = ask_ai(cid, msg)
 
     push(cid,"user",msg)
@@ -515,4 +491,8 @@ def chat():
 # ==================================================
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=False
+    )
