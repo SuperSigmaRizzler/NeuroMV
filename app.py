@@ -24,7 +24,7 @@ DAILY_LIMIT = 100
 IMAGE_LIMIT = 5
 FILE_LIMIT = 10
 
-MEMORY_SIZE = 300
+MEMORY_SIZE = 500
 LONG_MEMORY_FILE = "memory_db.json"
 
 REQUEST_TIMEOUT = 20
@@ -53,19 +53,22 @@ GROQ_KEYS = split_keys("GROQ_API_KEYS") or split_keys("GROQ_API_KEY")
 CEREBRAS_KEYS = split_keys("CEREBRAS_API_KEYS") or split_keys("CEREBRAS_API_KEY")
 
 # ==================================================
-# PROMPT
+# SYSTEM PROMPT
 # ==================================================
 SYSTEM_PROMPT = """
 You are NeuroMV, premium AI assistant created by Marvell Jonathan Siau.
 
 Rules:
 - Match user language automatically.
-- Smart like ChatGPT style.
-- Helpful, natural, modern.
-- Great at coding, school, business.
-- Use clean formatting.
+- Respond naturally like modern premium AI.
+- Smart, clear, helpful, human-like.
+- Great at coding, business, school, logic.
 - Understand typo/slang.
-- Use analogy only when needed.
+- Use analogy only when useful.
+- If user sounds formal, answer formal.
+- If user sounds casual, answer casual.
+- If search data is provided, use it confidently.
+- Never say you cannot access internet if search data exists.
 """
 
 # ==================================================
@@ -125,7 +128,7 @@ def add_file():
     session["file_count"] += 1
 
 # ==================================================
-# MEMORY GOD MODE
+# MEMORY GOD MODE (ALL CHAT CONNECTED)
 # ==================================================
 def mem():
     if "mem" not in session:
@@ -145,41 +148,33 @@ def save_long_mem(data):
     write_json(LONG_MEMORY_FILE, data)
 
 def push(cid, role, text):
-    text = text[:4000]
+    text = text[:5000]
 
-    # short memory
     arr = get_mem(cid)
     arr.append({"role": role, "text": text})
     session["mem"][cid] = arr[-MEMORY_SIZE:]
     session.modified = True
 
-    # long memory
     db = load_long_mem()
     u = uid()
 
     if u not in db:
-        db[u] = {}
+        db[u] = []
 
-    if cid not in db[u]:
-        db[u][cid] = []
-
-    db[u][cid].append({
+    db[u].append({
+        "chat_id": cid,
         "role": role,
-        "text": text
+        "text": text,
+        "time": int(time.time())
     })
 
-    db[u][cid] = db[u][cid][-1000:]
-
+    db[u] = db[u][-3000:]
     save_long_mem(db)
 
-def get_long_context(cid):
+def get_global_memory():
     db = load_long_mem()
     u = uid()
-
-    if u in db and cid in db[u]:
-        return db[u][cid][-40:]
-
-    return []
+    return db.get(u, [])[-80:]
 
 # ==================================================
 # BLOCK WORDS
@@ -218,87 +213,19 @@ def want_image(msg):
     return any(x in low for x in IMAGE_WORDS)
 
 def make_image(prompt):
-    pretty = "masterpiece, best quality, ultra detailed, " + prompt
+    pretty = "masterpiece, ultra detailed, best quality, " + prompt
     safe = quote(pretty)
     return {
         "url": f"https://image.pollinations.ai/prompt/{safe}"
     }
 
 # ==================================================
-# FILE READER
-# ==================================================
-def read_txt(data):
-    return data.decode("utf-8", errors="ignore")[:5000]
-
-def read_pdf(data):
-    if not PyPDF2:
-        return "PyPDF2 not installed."
-
-    try:
-        reader = PyPDF2.PdfReader(io.BytesIO(data))
-        out = []
-
-        for p in reader.pages[:10]:
-            out.append(p.extract_text() or "")
-
-        return "\n".join(out)[:5000]
-    except:
-        return "Failed read PDF."
-
-def read_docx(data):
-    if not docx:
-        return "python-docx not installed."
-
-    try:
-        d = docx.Document(io.BytesIO(data))
-        return "\n".join([p.text for p in d.paragraphs])[:5000]
-    except:
-        return "Failed read DOCX."
-
-def read_csv_file(data):
-    try:
-        txt = data.decode("utf-8", errors="ignore")
-        rows = list(csv.reader(io.StringIO(txt)))
-        return "\n".join([" | ".join(r) for r in rows[:20]])[:5000]
-    except:
-        return "Failed read CSV."
-
-def read_zip(data):
-    try:
-        z = zipfile.ZipFile(io.BytesIO(data))
-        return "ZIP Contents:\n" + "\n".join(z.namelist()[:50])
-    except:
-        return "Failed read ZIP."
-
-def smart_read_file(filename, data):
-    low = filename.lower()
-
-    if low.endswith(".pdf"):
-        return read_pdf(data)
-
-    if low.endswith(".docx"):
-        return read_docx(data)
-
-    if low.endswith(".csv"):
-        return read_csv_file(data)
-
-    if low.endswith(".zip"):
-        return read_zip(data)
-
-    if low.endswith((
-        ".txt",".py",".js",".html",".css",
-        ".json",".xml",".sql",".php",".cpp",".md"
-    )):
-        return read_txt(data)
-
-    return "Unsupported file type."
-
-# ==================================================
-# WEB SEARCH (no bs4)
+# REAL SEARCH
 # ==================================================
 SEARCH_WORDS = [
-    "today","latest","news","berapa",
-    "harga","terbaru","update","hari apa"
+    "today","latest","news","berapa","harga",
+    "terbaru","update","hari apa","tanggal",
+    "siapa sekarang","real time"
 ]
 
 def need_search(msg):
@@ -307,33 +234,76 @@ def need_search(msg):
 
 def web_search(query):
     try:
-        url = "https://api.duckduckgo.com/?q=" + quote(query) + "&format=json"
+        url = "https://api.duckduckgo.com/?q=" + quote(query) + "&format=json&no_redirect=1"
+
         r = requests.get(url, timeout=10)
         data = r.json()
 
-        out = []
+        results = []
 
-        if data.get("AbstractURL"):
-            out.append({
-                "title": data.get("Heading","Result"),
-                "link": data["AbstractURL"]
+        if data.get("Heading"):
+            results.append({
+                "title": data.get("Heading"),
+                "snippet": data.get("AbstractText",""),
+                "link": data.get("AbstractURL","https://duckduckgo.com")
             })
 
-        return out
+        for x in data.get("RelatedTopics", [])[:5]:
+            if isinstance(x, dict) and x.get("Text"):
+                results.append({
+                    "title": x.get("Text"),
+                    "snippet": x.get("Text"),
+                    "link": x.get("FirstURL","https://duckduckgo.com")
+                })
+
+        return results[:5]
+
     except:
         return []
 
 # ==================================================
-# AI PROVIDERS
+# FILE READER
+# ==================================================
+def smart_read_file(filename, data):
+    low = filename.lower()
+
+    try:
+        if low.endswith(".pdf") and PyPDF2:
+            reader = PyPDF2.PdfReader(io.BytesIO(data))
+            txt = []
+            for p in reader.pages[:10]:
+                txt.append(p.extract_text() or "")
+            return "\n".join(txt)[:5000]
+
+        if low.endswith(".docx") and docx:
+            d = docx.Document(io.BytesIO(data))
+            return "\n".join([p.text for p in d.paragraphs])[:5000]
+
+        if low.endswith(".csv"):
+            txt = data.decode("utf-8", errors="ignore")
+            rows = list(csv.reader(io.StringIO(txt)))
+            return "\n".join([" | ".join(r) for r in rows[:20]])
+
+        if low.endswith(".zip"):
+            z = zipfile.ZipFile(io.BytesIO(data))
+            return "ZIP:\n" + "\n".join(z.namelist()[:50])
+
+        return data.decode("utf-8", errors="ignore")[:5000]
+
+    except:
+        return "Unable to read file."
+
+# ==================================================
+# AI
 # ==================================================
 def build_messages(cid, msg):
     messages = [
         {"role":"system","content":SYSTEM_PROMPT}
     ]
 
-    history = get_long_context(cid)
+    history = get_global_memory()
 
-    for x in history[-40:]:
+    for x in history:
         role = "assistant" if x["role"] == "bot" else "user"
 
         messages.append({
@@ -352,10 +322,7 @@ def ask_groq(messages):
     if not GROQ_KEYS:
         return None
 
-    keys = GROQ_KEYS[:]
-    random.shuffle(keys)
-
-    for key in keys:
+    for key in random.sample(GROQ_KEYS, len(GROQ_KEYS)):
         try:
             r = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -382,10 +349,7 @@ def ask_cerebras(messages):
     if not CEREBRAS_KEYS:
         return None
 
-    keys = CEREBRAS_KEYS[:]
-    random.shuffle(keys)
-
-    for key in keys:
+    for key in random.sample(CEREBRAS_KEYS, len(CEREBRAS_KEYS)):
         try:
             r = requests.post(
                 "https://api.cerebras.ai/v1/chat/completions",
@@ -407,18 +371,13 @@ def ask_cerebras(messages):
 
     return None
 
-def offline_reply(msg):
-    return "NeuroMV sedang sibuk sekarang, tapi aku tetap standby buat bantu kamu."
-
 def ask_ai(cid, msg):
     messages = build_messages(cid, msg)
 
-    providers = [
+    for fn in [
         lambda: ask_groq(messages),
         lambda: ask_cerebras(messages)
-    ]
-
-    for fn in providers:
+    ]:
         try:
             out = fn()
             if out:
@@ -426,7 +385,7 @@ def ask_ai(cid, msg):
         except:
             pass
 
-    return offline_reply(msg)
+    return "NeuroMV sedang sibuk sekarang, tapi aku tetap siap bantu kamu."
 
 # ==================================================
 # ROUTES
@@ -442,96 +401,75 @@ def chat():
     cid = request.form.get("chat_id", "default")
     msg = request.form.get("message", "").strip()
 
+    if not msg and "file" not in request.files:
+        return jsonify({"type":"text","reply":"Please type a message."})
+
+    if blocked(msg):
+        return jsonify({"type":"text","reply":"I can't help with that request."})
+
     # FILE
     if "file" in request.files:
         f = request.files["file"]
 
         if f and f.filename:
-            if over_file():
-                return jsonify({"type":"limit_file"})
-
-            add_file()
-
             data = f.read()
             content = smart_read_file(f.filename, data)
 
             ask = f"""
 User uploaded file: {f.filename}
 
-File content:
+Content:
 {content}
 
-User asks:
-{msg or 'Explain this file'}
+User request:
+{msg or 'Explain this file clearly'}
 """
-
             reply = ask_ai(cid, ask)
 
             push(cid,"user","[file]")
             push(cid,"bot",reply)
 
-            return jsonify({
-                "type":"text",
-                "reply":reply
-            })
-
-    if not msg:
-        return jsonify({
-            "type":"text",
-            "reply":"Please type a message."
-        })
-
-    if blocked(msg):
-        return jsonify({
-            "type":"text",
-            "reply":"I can't help with that request."
-        })
+            return jsonify({"type":"text","reply":reply})
 
     # IMAGE
     if want_image(msg):
-        if over_image():
-            return jsonify({"type":"limit_image"})
-
-        add_image()
-
         img = make_image(msg)
-
-        return jsonify({
-            "type":"image",
-            "url": img["url"]
-        })
+        return jsonify({"type":"image","url":img["url"]})
 
     # SEARCH
     if need_search(msg):
         results = web_search(msg)
 
         if results:
-            src = ""
-            for r in results:
-                src += f"<a href='{r['link']}' target='_blank'>🌐</a> "
+            context = "\n".join([
+                f"{x['title']} - {x['snippet']}"
+                for x in results
+            ])
 
             ask = f"""
-User asks: {msg}
+Use the realtime search data below to answer accurately.
 
-Realtime search result:
-{results[0]['title']}
+{context}
 
-Answer naturally.
+Question: {msg}
+
+Never say you cannot access internet.
 """
-            reply = ask_ai(cid, ask) + "<br><br>" + src
+
+            reply = ask_ai(cid, ask)
+
+            icons = ""
+            for r in results[:3]:
+                icons += f"<a href='{r['link']}' target='_blank' style='text-decoration:none;font-size:18px;margin-right:8px'>🌐</a>"
+
+            reply += "<br><br>" + icons
 
             push(cid,"user",msg)
             push(cid,"bot",reply)
 
-            return jsonify({
-                "type":"text",
-                "reply":reply
-            })
+            return jsonify({"type":"text","reply":reply})
 
     # NORMAL
-    if over_chat():
-        return jsonify({"type":"limit_chat"})
-
     reply = ask_ai(cid, msg)
 
     push(cid,"user",msg)
@@ -539,10 +477,7 @@ Answer naturally.
 
     add_chat()
 
-    return jsonify({
-        "type":"text",
-        "reply":reply
-    })
+    return jsonify({"type":"text","reply":reply})
 
 # ==================================================
 # RUN
