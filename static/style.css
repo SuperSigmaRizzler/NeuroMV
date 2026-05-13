@@ -834,3 +834,343 @@ body{
   padding:2px 7px;
   border-radius:8px;
 }
+
+/* ==================================================
+   NEUROMV ULTRA FINAL PATCH
+   PREMIUM STATUS + CHATGPT CODE BLOCK + MODE TOGGLE
+================================================== */
+
+/* =========================
+   PREMIUM STATUS LOADER
+========================= */
+.status-row{
+  animation: fadeIn .2s ease;
+}
+
+.status-bubble{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:12px 16px;
+  border:1px solid rgba(255,255,255,.08);
+  background:
+    linear-gradient(135deg,rgba(255,255,255,.08),rgba(255,255,255,.02)),
+    rgba(20,24,34,.88);
+  box-shadow:
+    0 10px 28px rgba(0,0,0,.25),
+    inset 0 1px 0 rgba(255,255,255,.08);
+  backdrop-filter: blur(14px);
+}
+
+.glossy-text{
+  font-weight:600;
+  background:linear-gradient(90deg,#ffffff,#9fb7ff,#ffffff);
+  background-size:220% auto;
+  -webkit-background-clip:text;
+  background-clip:text;
+  color:transparent;
+  animation: glossyMove 1.4s linear infinite;
+}
+
+.thinking-dots{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+}
+
+.thinking-dots i{
+  width:5px;
+  height:5px;
+  border-radius:50%;
+  background:rgba(255,255,255,.75);
+  animation: dotPulse 1s infinite ease-in-out;
+}
+
+.thinking-dots i:nth-child(2){
+  animation-delay:.15s;
+}
+
+.thinking-dots i:nth-child(3){
+  animation-delay:.3s;
+}
+
+/* =========================
+   CHATGPT STYLE CODE BLOCK
+========================= */
+.code-wrap,
+.chatgpt-code-wrap{
+  width:100%;
+  max-width:100%;
+  margin:14px 0;
+  border-radius:14px;
+  overflow:hidden;
+  background:#0d1117;
+  border:1px solid rgba(255,255,255,.10);
+  box-shadow:0 10px 28px rgba(0,0,0,.22);
+}
+
+.code-head,
+.chatgpt-code-head{
+  height:38px;
+  padding:0 12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  background:#161b22;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  color:#c9d1d9;
+  font-size:12px;
+}
+
+.code-lang{
+  opacity:.8;
+  font-weight:600;
+}
+
+.copy-btn{
+  border:none;
+  outline:none;
+  cursor:pointer;
+  padding:6px 10px;
+  border-radius:8px;
+  background:rgba(255,255,255,.08);
+  color:#fff;
+  font-size:12px;
+  transition:.18s ease;
+}
+
+.copy-btn:hover{
+  background:rgba(255,255,255,.16);
+}
+
+.copy-btn.copied{
+  background:rgba(61,220,132,.18);
+  color:#7cffb0;
+}
+
+.code-pre,
+.chatgpt-code-pre{
+  margin:0;
+  padding:14px;
+  max-width:100%;
+  overflow-x:auto;
+  white-space:pre;
+  font-size:13px;
+  line-height:1.55;
+}
+
+.code-pre code,
+.chatgpt-code-pre code{
+  display:block;
+  min-width:max-content;
+  color:#e6edf3;
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
+    monospace;
+}
+
+/* Kalau ingin script panjang turun ke bawah, aktifkan ini */
+.bot-bubble .code-pre.wrap-code,
+.bot-bubble .chatgpt-code-pre.wrap-code{
+  white-space:pre-wrap;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+.inline-code{
+  padding:2px 5px;
+  border-radius:6px;
+  background:rgba(255,255,255,.10);
+  color:#fff;
+  font-family:ui-monospace,monospace;
+  font-size:.92em;
+}
+
+/* Biar bubble bot tidak melebar keluar layar */
+.bot-bubble{
+  max-width:min(780px, calc(100vw - 32px));
+  overflow-wrap:break-word;
+}
+
+.user-bubble{
+  max-width:min(680px, calc(100vw - 32px));
+  overflow-wrap:break-word;
+}
+
+/* =========================
+   MODE TOGGLE
+========================= */
+.mode-toggle{
+  display:flex;
+  gap:8px;
+  padding:10px 14px;
+  justify-content:center;
+  align-items:center;
+  flex-wrap:wrap;
+}
+
+.mode-toggle button{
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.04);
+  color:#cfd6e6;
+  padding:8px 14px;
+  border-radius:999px;
+  cursor:pointer;
+  font-size:13px;
+  transition:.2s ease;
+}
+
+.mode-toggle button:hover{
+  background:rgba(255,255,255,.08);
+}
+
+.mode-toggle button.active{
+  color:#fff;
+  background:linear-gradient(135deg,#5b7cff,#8f5bff);
+  box-shadow:0 8px 24px rgba(91,124,255,.25);
+}
+
+/* =========================
+   FILE PREVIEW PREMIUM
+========================= */
+.preview-card{
+  position:relative;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 38px 10px 12px;
+  border-radius:14px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+  max-width:300px;
+}
+
+.image-preview-card{
+  max-width:300px;
+}
+
+.preview-img{
+  width:46px;
+  height:46px;
+  object-fit:cover;
+  border-radius:10px;
+}
+
+.preview-info{
+  min-width:0;
+}
+
+.preview-info span,
+.preview-card span{
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  max-width:190px;
+}
+
+.preview-x{
+  position:absolute;
+  right:8px;
+  top:50%;
+  transform:translateY(-50%);
+  width:24px;
+  height:24px;
+  border:none;
+  border-radius:50%;
+  background:rgba(255,255,255,.12);
+  color:white;
+  cursor:pointer;
+}
+
+.preview-x:hover{
+  background:rgba(255,255,255,.22);
+}
+
+/* =========================
+   SOURCE ICON
+========================= */
+.source-icon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  margin-right:6px;
+  text-decoration:none;
+}
+
+.source-icon img{
+  width:16px;
+  height:16px;
+  border-radius:4px;
+  vertical-align:middle;
+}
+
+/* =========================
+   ANIMATIONS
+========================= */
+@keyframes glossyMove{
+  0%{
+    background-position:0% center;
+  }
+  100%{
+    background-position:220% center;
+  }
+}
+
+@keyframes dotPulse{
+  0%,80%,100%{
+    transform:scale(.65);
+    opacity:.35;
+  }
+  40%{
+    transform:scale(1.2);
+    opacity:1;
+  }
+}
+
+@keyframes fadeIn{
+  from{
+    opacity:0;
+    transform:translateY(4px);
+  }
+  to{
+    opacity:1;
+    transform:translateY(0);
+  }
+}
+
+/* =========================
+   MOBILE SAFE
+========================= */
+@media(max-width:700px){
+  .code-wrap,
+  .chatgpt-code-wrap{
+    border-radius:12px;
+  }
+
+  .code-pre,
+  .chatgpt-code-pre{
+    padding:12px;
+    font-size:12.5px;
+  }
+
+  .bot-bubble,
+  .user-bubble{
+    max-width:calc(100vw - 24px);
+  }
+
+  .mode-toggle{
+    padding:8px;
+  }
+
+  .mode-toggle button{
+    font-size:12px;
+    padding:7px 11px;
+  }
+}

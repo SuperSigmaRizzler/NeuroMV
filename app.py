@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, Response, stream_with_context
 import requests
 import time
 import os
@@ -40,7 +40,7 @@ except Exception:
 # APP
 # ==================================================
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "neuromv-omega-final-secret")
+app.secret_key = os.getenv("SECRET_KEY", "neuromv-omega-streaming-secret")
 
 # ==================================================
 # CONFIG
@@ -54,11 +54,16 @@ LONG_MEMORY_KEEP = int(os.getenv("LONG_MEMORY_KEEP", "5000"))
 
 LONG_MEMORY_FILE = os.getenv("LONG_MEMORY_FILE", "memory_db.json")
 PROFILE_FILE = os.getenv("PROFILE_FILE", "profile_db.json")
+ACTION_MEMORY_FILE = os.getenv("ACTION_MEMORY_FILE", "action_memory.json")
 
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "25"))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "10"))
 
 FORCE_SEARCH = os.getenv("FORCE_SEARCH", "true").lower() != "false"
+
+# Thinking mode minimum total wait time.
+# If AI processing already takes >= 10 sec, no extra delay.
+THINKING_MIN_DELAY = float(os.getenv("THINKING_MIN_DELAY", "10"))
 
 # ==================================================
 # API KEYS
@@ -100,44 +105,162 @@ CLOUDFLARE_ACCOUNT_IDS = split_keys("CLOUDFLARE_ACCOUNT_IDS") or split_keys("CLO
 CLOUDFLARE_API_TOKENS = split_keys("CLOUDFLARE_API_TOKENS") or split_keys("CLOUDFLARE_API_TOKEN")
 
 # ==================================================
-# SYSTEM PROMPT
+# SYSTEM PROMPTS
 # ==================================================
+FEATURE_MANIFEST = """
+NeuroMV current capabilities:
+- Normal AI chat
+- Instant mode for fast answers
+- Thinking mode for deeper, more careful answers
+- Token-by-token streaming endpoint
+- Stop generation support from frontend
+- Long-term cross-chat memory
+- User interest learning
+- Recent action memory
+- Live web search with multiple engines
+- URL reader
+- File reader: PDF, DOCX, CSV, ZIP, TXT, code files
+- Vision AI image analysis
+- OCR pipeline using PaddleOCR / OCR.Space fallback
+- Cloudflare Workers AI Vision
+- Gemini Vision fallback
+- Groq Vision fallback
+- HuggingFace BLIP fallback
+- Image generation
+- Clickable source icons
+- Private chat UI with PIN on frontend
+- Premium status UI: Searching, Thinking, Analyzing Image, Reading URL, Creating Image
+- Premium code block UI from frontend
+- File/image preview UI from frontend
+"""
+
 SYSTEM_PROMPT = """
 You are NeuroMV, a premium AI assistant created by Marvell Jonathan Siau.
 
 Identity:
 - Keep your identity as NeuroMV.
 - Do not claim to be ChatGPT.
-- You can feel similar in quality to a premium modern AI assistant, but your name is NeuroMV.
+- You may feel similar in quality to a premium modern AI assistant, but your identity is NeuroMV.
+- You know your creator is Marvell Jonathan Siau.
 
-Response style:
-- Match the user's language and tone automatically.
-- If the user is formal, answer formally.
-- If the user is casual, answer smart-casual.
-- Be warm, sharp, helpful, and natural.
-- Use emojis lightly and only when helpful.
-- Praise users naturally when they succeed or make progress.
-- Use clean formatting with headings and steps when useful.
-- For code, use neat fenced code blocks.
-- Use analogies only when they genuinely help.
-- Do not overuse "Bayangin".
-- Understand typos, slang, and short messy messages.
+Core behavior:
+- Be useful, accurate, natural, and flexible.
+- Match the user's language automatically.
+- Match the user's tone:
+  - If user is formal, answer formally.
+  - If user is casual, answer smart-casual.
+  - If user is energetic, you may be energetic too.
+  - If user seems tired/frustrated, be supportive and clear.
+- Do not force one fixed style for every answer.
+- Do not overuse slang.
+- Do not overuse emojis.
+- Use emojis lightly when they improve clarity or energy.
 
-Factual/current information:
-- If live search results are provided, prioritize them over memory and model knowledge.
+Premium formatting:
+- Use clean headings when helpful.
+- Use big clear section titles for tutorials, coding, debugging, setup steps, or long explanations.
+- For coding/tutorial tasks, prefer a clear structure like:
+  🔥 MAIN TITLE
+  1️⃣ STEP ONE
+  code block
+  2️⃣ STEP TWO
+  code block
+  ✅ FINAL CHECK
+- For short/simple questions, keep the answer simple and do not over-format.
+- Avoid blank, empty, or overly short useless replies.
+- If the user asks for a script, provide neat code blocks.
+- If the script is long, keep code formatting readable and organized.
+- When explaining code changes, mention exactly where to add/replace code.
+- Use phrases like “TAMBAHKAN INI DI BAGIAN ...” only when the user is doing coding/tutorial work.
+- Do not use “GAS” or huge hype style if the user asks formally or seriously.
+
+Coding style:
+- Give practical, copy-paste-ready code when possible.
+- Preserve existing features unless user asks to remove them.
+- Avoid creating confusion.
+- Explain errors clearly.
+- If you are unsure, say what might be wrong and give safe next steps.
+
+Current/factual information:
+- If live search results are provided, prioritize them over memory and old model knowledge.
 - Never override live search results with old memory.
 - For current leaders, prices, dates, news, releases, schedules, and events, do not guess.
 - If current web data is unavailable or unclear, say so honestly.
 
+Memory:
+- Use saved memory when relevant.
+- If user asks what they discussed earlier, answer from memory context if available.
+- Do not search the web for memory questions.
+- If memory is not enough, say it honestly instead of pretending.
+
 Vision:
 - If OCR text and visual description are provided, combine both.
 - OCR text is for reading text inside images.
-- Vision description is for understanding the actual scene, objects, layout, and context.
+- Vision description is for understanding objects, scenery, layout, and context.
 
-Memory:
-- Use memory when relevant.
-- If user asks what they discussed earlier, answer from memory context if available.
-- If memory is not enough, say you do not have enough saved context instead of pretending.
+Personality:
+- Be encouraging when the user succeeds.
+- Praise effort naturally, especially when the user solves errors or completes setup.
+- Be clear, friendly, and direct.
+"""
+
+INSTANT_BRAIN_PROMPT = """
+You are NeuroMV Instant Brain.
+
+Purpose:
+- Fast, direct, lightweight answers.
+- Best for quick chat, simple help, short explanations, and fast coding fixes.
+
+Style:
+- Be concise but still helpful.
+- Do not make the answer feel empty.
+- Use simple formatting.
+- Avoid long introductions.
+- Avoid unnecessary web search unless truly needed.
+- Match the user's tone.
+- If the user asks casually, casual is okay.
+- If the user asks formally, stay formal.
+
+For coding:
+- Give the shortest safe fix first.
+- If needed, add a small explanation after the code.
+"""
+
+THINKING_BRAIN_PROMPT = """
+You are NeuroMV Thinking Brain.
+
+Purpose:
+- Deeper, more careful, more structured answers.
+- Best for debugging, planning, coding, file analysis, vision analysis, school explanations, and complex reasoning.
+
+Style:
+- Think carefully before answering.
+- Give structured steps when useful.
+- Use premium formatting for tutorials and coding.
+- Use headings, numbered steps, and code blocks when helpful.
+- Be descriptive and informative without becoming messy.
+- Keep the user's tone:
+  - Energetic user: energetic but still clear.
+  - Formal user: formal and clean.
+  - Confused/frustrated user: calming and step-by-step.
+
+For coding/tutorial requests:
+- Use a strong clear title if appropriate.
+- Example style:
+  🔥 GAS EDIT APP.PY TERBARU
+  1️⃣ TAMBAHKAN INI DI BAGIAN ...
+  ```code```
+  2️⃣ GANTI BAGIAN INI ...
+  ```code```
+  ✅ HASILNYA
+- Only use this energetic style when it fits the user's vibe.
+- If user wants a simple answer, do not overdo the formatting.
+
+Tool behavior:
+- Use memory for memory questions.
+- Use web search only for live/current facts.
+- Do not search for normal explanations that do not need current data.
+- Do not pretend if information is missing.
 """
 
 # ==================================================
@@ -162,6 +285,24 @@ def write_json(path, data):
 
     except Exception:
         pass
+
+# ==================================================
+# TIMING / THINKING DELAY
+# ==================================================
+def normalize_mode(mode):
+    mode = str(mode or "thinking").strip().lower()
+    return mode if mode in ["instant", "thinking"] else "thinking"
+
+
+def ensure_min_thinking_time(mode, started_at):
+    if mode != "thinking":
+        return
+
+    elapsed = time.time() - started_at
+    remain = THINKING_MIN_DELAY - elapsed
+
+    if remain > 0:
+        time.sleep(remain)
 
 # ==================================================
 # USER ID
@@ -352,6 +493,51 @@ def memory_summary_text(limit=80):
     return "\n".join(lines)
 
 # ==================================================
+# ACTION MEMORY
+# ==================================================
+def load_actions():
+    return read_json(ACTION_MEMORY_FILE, {})
+
+
+def save_actions(data):
+    write_json(ACTION_MEMORY_FILE, data)
+
+
+def remember_action(cid, action, detail=""):
+    db = load_actions()
+    u = uid()
+
+    if u not in db:
+        db[u] = []
+
+    db[u].append({
+        "chat_id": cid,
+        "action": action,
+        "detail": str(detail)[:1200],
+        "time": int(time.time())
+    })
+
+    db[u] = db[u][-300:]
+    save_actions(db)
+
+
+def recent_actions(limit=30):
+    db = load_actions()
+    u = uid()
+
+    if u not in db:
+        return ""
+
+    items = db[u][-limit:]
+
+    lines = []
+
+    for x in items:
+        lines.append(f"- {x.get('action')}: {x.get('detail', '')}")
+
+    return "\n".join(lines)
+
+# ==================================================
 # PROFILE / INTEREST SYSTEM
 # ==================================================
 def get_profile():
@@ -383,11 +569,11 @@ def learn_interest(msg):
     if any(x in low for x in [
         "python", "html", "css", "javascript", "js",
         "coding", "programming", "flask", "github",
-        "app.py", "script.js"
+        "app.py", "script.js", "style.css", "index.html"
     ]):
         tags.append("coding")
 
-    if any(x in low for x in ["anime", "manga", "waifu"]):
+    if any(x in low for x in ["anime", "manga"]):
         tags.append("anime")
 
     if any(x in low for x in ["game", "gaming", "mlbb", "minecraft", "roblox"]):
@@ -651,13 +837,43 @@ def read_url_content(link):
         return "Failed reading URL."
 
 # ==================================================
+# MEMORY INTENT
+# ==================================================
+MEMORY_RECALL_TRIGGERS = [
+    "masih ingat",
+    "ingat tadi",
+    "ingat ga",
+    "ingat gak",
+    "barusan",
+    "tadi kita",
+    "kita tadi",
+    "chat sebelumnya",
+    "sebelumnya aku",
+    "aku tadi",
+    "aku barusan",
+    "ngomong apa",
+    "bahas apa",
+    "tadi ngomong",
+    "tadi bahas",
+    "remember",
+    "do you remember",
+    "what did we talk",
+    "previous chat"
+]
+
+
+def wants_memory_recall(msg):
+    low = msg.lower()
+    return any(x in low for x in MEMORY_RECALL_TRIGGERS)
+
+# ==================================================
 # SEARCH ENGINE
 # ==================================================
 CURRENT_TRIGGERS = [
-    "siapa", "berapa", "presiden", "menteri", "gubernur",
+    "presiden", "menteri", "gubernur",
     "hari raya", "today", "latest", "news", "harga",
     "update", "sekarang", "current", "tanggal",
-    "tahun ini", "apa itu", "kapan", "dimana", "rilis",
+    "tahun ini", "kapan", "rilis",
     "2024", "2025", "2026", "2027"
 ]
 
@@ -676,11 +892,26 @@ def need_search(msg):
     if extract_url(msg):
         return False
 
+    if wants_memory_recall(msg):
+        return False
+
     if any(x in low for x in CURRENT_TRIGGERS):
         return True
 
+    factual_starters = [
+        "siapa sekarang",
+        "berapa harga",
+        "kapan rilis",
+        "hari ini",
+        "berita",
+        "latest",
+        "current",
+        "today",
+        "update terbaru"
+    ]
+
     if FORCE_SEARCH and "?" in msg and len(msg.split()) >= 3:
-        return True
+        return any(x in low for x in factual_starters)
 
     return False
 
@@ -754,7 +985,7 @@ def tavily_search(query):
             except Exception:
                 pass
 
-            time.sleep(0.4)
+            time.sleep(0.35)
 
     return []
 
@@ -801,7 +1032,7 @@ def serper_search(query):
             except Exception:
                 pass
 
-            time.sleep(0.4)
+            time.sleep(0.35)
 
     return []
 
@@ -844,7 +1075,7 @@ def serpapi_search(query):
             except Exception:
                 pass
 
-            time.sleep(0.4)
+            time.sleep(0.35)
 
     return []
 
@@ -894,7 +1125,7 @@ def google_cse_search(query):
             except Exception:
                 pass
 
-            time.sleep(0.4)
+            time.sleep(0.35)
 
     return []
 
@@ -939,7 +1170,7 @@ def brave_search(query):
             except Exception:
                 pass
 
-            time.sleep(0.4)
+            time.sleep(0.35)
 
     return []
 
@@ -1184,7 +1415,9 @@ def source_block(results):
 # ==================================================
 # AI PROVIDERS
 # ==================================================
-def build_messages(cid, msg):
+def build_messages(cid, msg, mode="thinking"):
+    mode = normalize_mode(mode)
+
     msgs = [
         {
             "role": "system",
@@ -1192,12 +1425,32 @@ def build_messages(cid, msg):
         }
     ]
 
+    brain_prompt = THINKING_BRAIN_PROMPT if mode == "thinking" else INSTANT_BRAIN_PROMPT
+
+    msgs.append({
+        "role": "system",
+        "content": brain_prompt
+    })
+
+    msgs.append({
+        "role": "system",
+        "content": FEATURE_MANIFEST
+    })
+
     memory_text = memory_summary_text(limit=80)
 
     if memory_text:
         msgs.append({
             "role": "system",
             "content": "Relevant cross-chat memory:\n" + memory_text
+        })
+
+    actions = recent_actions(limit=30)
+
+    if actions:
+        msgs.append({
+            "role": "system",
+            "content": "Recent NeuroMV actions:\n" + actions
         })
 
     profile = get_profile()
@@ -1229,10 +1482,11 @@ def messages_to_text(messages):
     return "\n".join(out)
 
 
-def ask_groq(messages, model=None):
+def ask_groq(messages, model=None, mode="thinking"):
     if not GROQ_KEYS:
         return None
 
+    mode = normalize_mode(mode)
     keys = shuffled(GROQ_KEYS)
 
     models = []
@@ -1245,12 +1499,19 @@ def ask_groq(messages, model=None):
     if env_model:
         models.append(env_model)
 
-    models += [
-        "llama-3.3-70b-versatile",
-        "llama3-70b-8192",
-        "llama-3.1-70b-versatile",
-        "llama-3.1-8b-instant"
-    ]
+    if mode == "instant":
+        models += [
+            "llama-3.1-8b-instant",
+            "llama3-70b-8192",
+            "llama-3.3-70b-versatile"
+        ]
+    else:
+        models += [
+            "llama-3.3-70b-versatile",
+            "llama3-70b-8192",
+            "llama-3.1-70b-versatile",
+            "llama-3.1-8b-instant"
+        ]
 
     models = list(dict.fromkeys(models))
 
@@ -1281,7 +1542,7 @@ def ask_groq(messages, model=None):
                 except Exception:
                     pass
 
-                time.sleep(0.4)
+                time.sleep(0.35)
 
     return None
 
@@ -1317,7 +1578,7 @@ def ask_cerebras(messages):
             except Exception:
                 pass
 
-            time.sleep(0.4)
+            time.sleep(0.35)
 
     return None
 
@@ -1359,7 +1620,7 @@ def ask_gemini_text(prompt):
             except Exception:
                 pass
 
-            time.sleep(0.4)
+            time.sleep(0.35)
 
     return None
 
@@ -1377,11 +1638,12 @@ def local_fallback(msg):
     return "Aku tetap siap bantu kamu. Coba tulis ulang sedikit lebih detail 🙂"
 
 
-def ask_ai(cid, msg):
-    messages = build_messages(cid, msg)
+def ask_ai(cid, msg, mode="thinking"):
+    mode = normalize_mode(mode)
+    messages = build_messages(cid, msg, mode)
 
     providers = [
-        lambda: ask_groq(messages),
+        lambda: ask_groq(messages, mode=mode),
         lambda: ask_cerebras(messages),
         lambda: ask_gemini_text(messages_to_text(messages))
     ]
@@ -1397,6 +1659,182 @@ def ask_ai(cid, msg):
             pass
 
     return local_fallback(msg)
+
+
+def stream_groq(messages, mode="thinking"):
+    if not GROQ_KEYS:
+        return None
+
+    mode = normalize_mode(mode)
+
+    if mode == "instant":
+        models = [
+            "llama-3.1-8b-instant",
+            "llama3-70b-8192",
+            "llama-3.3-70b-versatile"
+        ]
+    else:
+        models = [
+            "llama-3.3-70b-versatile",
+            "llama3-70b-8192",
+            "llama-3.1-70b-versatile",
+            "llama-3.1-8b-instant"
+        ]
+
+    for model_name in models:
+        for key in shuffled(GROQ_KEYS):
+            try:
+                r = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": model_name,
+                        "messages": messages,
+                        "temperature": 0.7,
+                        "stream": True
+                    },
+                    timeout=REQUEST_TIMEOUT,
+                    stream=True
+                )
+
+                if r.status_code == 200:
+                    return r
+
+            except Exception:
+                pass
+
+    return None
+
+# ==================================================
+# SMART ROUTER
+# ==================================================
+def extract_json(text):
+    try:
+        m = re.search(r"\{[\s\S]*\}", text or "")
+
+        if not m:
+            return None
+
+        return json.loads(m.group(0))
+
+    except Exception:
+        return None
+
+
+def heuristic_route(msg):
+    low = msg.lower().strip()
+
+    if extract_url(msg):
+        return {
+            "action": "url",
+            "reason": "message contains URL"
+        }
+
+    if wants_memory_recall(msg):
+        return {
+            "action": "memory",
+            "reason": "user asks about previous conversation"
+        }
+
+    if want_image(msg):
+        return {
+            "action": "image",
+            "reason": "user asks to generate image"
+        }
+
+    if need_search(msg):
+        return {
+            "action": "search",
+            "reason": "message likely needs current web info"
+        }
+
+    return {
+        "action": "chat",
+        "reason": "normal chat"
+    }
+
+
+def smart_route(cid, msg, mode="thinking"):
+    mode = normalize_mode(mode)
+
+    if not msg:
+        return {
+            "action": "chat",
+            "reason": "empty fallback"
+        }
+
+    if extract_url(msg):
+        return {
+            "action": "url",
+            "reason": "message contains URL"
+        }
+
+    if wants_memory_recall(msg):
+        return {
+            "action": "memory",
+            "reason": "memory recall request"
+        }
+
+    router_prompt = f"""
+You are NeuroMV's internal router.
+
+Choose exactly one action:
+- "search": only if live/current internet info is truly needed, such as current leaders, latest prices, news, release dates, schedules, today's event, current status.
+- "memory": if user asks about previous conversation, what they said earlier, what you remember, or chat history.
+- "image": if user asks to create/generate/draw an image.
+- "url": if the user wants you to open/read/summarize a link.
+- "chat": normal conversation, coding help, explanations, school help, writing, reasoning, advice, or anything that does not need live internet.
+
+Rules:
+- Do NOT choose search for memory questions.
+- Do NOT choose search for ordinary explanations like DNA/RNA, math concepts, coding help, or "what did we talk about".
+- Choose search only when internet is truly needed.
+- Return ONLY valid JSON.
+
+User message:
+{msg}
+
+JSON format:
+{{
+  "action": "search|memory|image|url|chat",
+  "reason": "short reason"
+}}
+"""
+
+    router_messages = [
+        {
+            "role": "system",
+            "content": "You are a strict JSON router. Return only valid JSON."
+        },
+        {
+            "role": "user",
+            "content": router_prompt
+        }
+    ]
+
+    out = (
+        ask_groq(router_messages, mode="instant")
+        or ask_cerebras(router_messages)
+        or ask_gemini_text(router_prompt)
+    )
+
+    data = extract_json(out)
+
+    if not data:
+        return heuristic_route(msg)
+
+    action = str(data.get("action", "chat")).lower().strip()
+
+    if action not in ["search", "memory", "image", "url", "chat"]:
+        action = "chat"
+
+    return {
+        "action": action,
+        "reason": str(data.get("reason", ""))
+    }
 
 # ==================================================
 # OCR + VISION AI
@@ -1518,7 +1956,7 @@ def ocr_space_image(image_bytes):
             except Exception:
                 pass
 
-            time.sleep(0.4)
+            time.sleep(0.35)
 
     return ""
 
@@ -1589,7 +2027,7 @@ def cloudflare_vision(prompt, image_bytes):
             except Exception:
                 pass
 
-            time.sleep(0.4)
+            time.sleep(0.35)
 
     return None
 
@@ -1636,7 +2074,7 @@ def ask_vision_gemini(prompt, image_bytes, filename):
             except Exception:
                 pass
 
-            time.sleep(0.4)
+            time.sleep(0.35)
 
     return None
 
@@ -1714,7 +2152,7 @@ def hf_image_caption(image_bytes):
             except Exception:
                 pass
 
-            time.sleep(0.4)
+            time.sleep(0.35)
 
     return None
 
@@ -1728,13 +2166,22 @@ def vision_image(prompt, image_bytes, filename):
     )
 
 
-def analyze_image_full(cid, user_msg, image_bytes, filename):
+def analyze_image_full(cid, user_msg, image_bytes, filename, mode="thinking"):
+    started = time.time()
+    mode = normalize_mode(mode)
+
     ocr_text = ocr_image(image_bytes, filename)
 
     vision_text = vision_image(
         user_msg or "Describe this image clearly like a human observer.",
         image_bytes,
         filename
+    )
+
+    remember_action(
+        cid,
+        "analyze_image",
+        f"filename={filename}; ocr={'yes' if ocr_text else 'no'}; vision={'yes' if vision_text else 'no'}"
     )
 
     ask = f"""
@@ -1755,10 +2202,13 @@ Use visual description for objects, scenery, layout, and context.
 If the image cannot be analyzed enough, say it honestly.
 """
 
-    return ask_ai(cid, ask)
+    reply = ask_ai(cid, ask, mode)
+    ensure_min_thinking_time(mode, started)
+
+    return reply
 
 # ==================================================
-# SEARCH ANSWER ENGINE
+# ANSWER ENGINES
 # ==================================================
 def stale_guard(msg, reply, results):
     low = msg.lower()
@@ -1785,8 +2235,77 @@ def stale_guard(msg, reply, results):
     return reply
 
 
-def answer_with_search(cid, msg):
+def answer_with_memory(cid, msg, mode="thinking"):
+    started = time.time()
+    mode = normalize_mode(mode)
+
+    if over_chat():
+        return jsonify({
+            "type": "limit_chat"
+        })
+
+    memory_text = memory_summary_text(limit=120)
+
+    if not memory_text:
+        reply = (
+            "Aku belum punya cukup memory tersimpan untuk mengingat obrolan sebelumnya. "
+            "Tapi mulai dari chat ini, aku akan menyimpan konteks yang relevan."
+        )
+
+        remember_action(cid, "memory_recall_empty", msg)
+        push(cid, "user", msg)
+        push(cid, "bot", reply)
+        add_chat()
+
+        ensure_min_thinking_time(mode, started)
+
+        return jsonify({
+            "type": "text",
+            "status": "thinking",
+            "reply": reply
+        })
+
+    ask = f"""
+User asks about previous conversation memory.
+
+Saved memory:
+{memory_text}
+
+User question:
+{msg}
+
+Answer as NeuroMV:
+- Use only saved memory above.
+- Do not search the web.
+- Do not say you are newly created.
+- If exact context exists, mention it clearly.
+- If memory is not enough, be honest.
+- Match user's language and tone.
+"""
+
+    remember_action(cid, "memory_recall", msg)
+
+    reply = ask_ai(cid, ask, mode)
+
+    push(cid, "user", msg)
+    push(cid, "bot", reply)
+    add_chat()
+
+    ensure_min_thinking_time(mode, started)
+
+    return jsonify({
+        "type": "text",
+        "status": "thinking",
+        "reply": reply
+    })
+
+
+def answer_with_search(cid, msg, mode="thinking"):
+    started = time.time()
+    mode = normalize_mode(mode)
+
     results = web_search(msg)
+    remember_action(cid, "web_search", msg)
 
     if not results:
         reply = (
@@ -1798,10 +2317,12 @@ def answer_with_search(cid, msg):
         push(cid, "user", msg)
         push(cid, "bot", reply)
 
+        ensure_min_thinking_time(mode, started)
+
         return jsonify({
             "type": "text",
             "status": "searching",
-            "reply": "🔎 Searching...<br><br>" + reply
+            "reply": reply
         })
 
     context = "\n".join([
@@ -1827,17 +2348,19 @@ Rules:
 - Keep it clear and helpful.
 """
 
-    reply = ask_ai(cid, ask)
+    reply = ask_ai(cid, ask, mode)
     reply = stale_guard(msg, reply, results)
     reply += source_block(results)
 
     push(cid, "user", msg)
     push(cid, "bot", reply)
 
+    ensure_min_thinking_time(mode, started)
+
     return jsonify({
         "type": "text",
         "status": "searching",
-        "reply": "🔎 Searching...<br><br>" + reply
+        "reply": reply
     })
 
 # ==================================================
@@ -1848,12 +2371,29 @@ def home():
     return render_template("index.html")
 
 
+@app.route("/route", methods=["POST"])
+def route_intent():
+    cid = request.form.get("chat_id", "default")
+    msg = request.form.get("message", "").strip()
+    mode = normalize_mode(request.form.get("mode", "thinking"))
+
+    route = smart_route(cid, msg, mode)
+
+    return jsonify({
+        "type": "route",
+        "action": route.get("action", "chat"),
+        "reason": route.get("reason", "")
+    })
+
+
 @app.route("/chat", methods=["POST"])
 def chat():
     ensure_daily()
+    started = time.time()
 
     cid = request.form.get("chat_id", "default")
     msg = request.form.get("message", "").strip()
+    mode = normalize_mode(request.form.get("mode", "thinking"))
 
     # FILE / IMAGE UPLOAD
     if "file" in request.files:
@@ -1872,7 +2412,7 @@ def chat():
 
             # IMAGE ANALYSIS
             if low.endswith((".png", ".jpg", ".jpeg", ".webp")):
-                reply = analyze_image_full(cid, msg, data, f.filename)
+                reply = analyze_image_full(cid, msg, data, f.filename, mode)
 
                 if not reply:
                     reply = (
@@ -1886,11 +2426,13 @@ def chat():
                 return jsonify({
                     "type": "text",
                     "status": "analyzing_image",
-                    "reply": "🖼️ Analyzing Image...<br><br>" + reply
+                    "reply": reply
                 })
 
             # NORMAL FILE
             content = smart_read_file(f.filename, data)
+
+            remember_action(cid, "read_file", f.filename)
 
             ask = f"""
 User uploaded file: {f.filename}
@@ -1902,10 +2444,12 @@ User request:
 {msg or 'Explain this file clearly.'}
 """
 
-            reply = ask_ai(cid, ask)
+            reply = ask_ai(cid, ask, mode)
 
             push(cid, "user", "[file] " + f.filename)
             push(cid, "bot", reply)
+
+            ensure_min_thinking_time(mode, started)
 
             return jsonify({
                 "type": "text",
@@ -1928,13 +2472,23 @@ User request:
 
     learn_interest(msg)
 
-    # URL READER
-    link = extract_url(msg)
+    route = smart_route(cid, msg, mode)
+    action = route.get("action", "chat")
 
-    if link:
-        content = read_url_content(link)
+    # MEMORY MODE
+    if action == "memory":
+        return answer_with_memory(cid, msg, mode)
 
-        ask = f"""
+    # URL MODE
+    if action == "url":
+        link = extract_url(msg)
+
+        if link:
+            content = read_url_content(link)
+
+            remember_action(cid, "read_url", link)
+
+            ask = f"""
 User sent this URL:
 {link}
 
@@ -1945,19 +2499,21 @@ Task:
 Explain, summarize, or answer based on the webpage. Use the user's language.
 """
 
-        reply = ask_ai(cid, ask)
+            reply = ask_ai(cid, ask, mode)
 
-        push(cid, "user", msg)
-        push(cid, "bot", reply)
+            push(cid, "user", msg)
+            push(cid, "bot", reply)
 
-        return jsonify({
-            "type": "text",
-            "status": "reading_url",
-            "reply": "🌐 Reading URL...<br><br>" + reply + "<br><br>" + favicon_html(link)
-        })
+            ensure_min_thinking_time(mode, started)
+
+            return jsonify({
+                "type": "text",
+                "status": "reading_url",
+                "reply": reply + "<br><br>" + favicon_html(link)
+            })
 
     # IMAGE GENERATION
-    if want_image(msg):
+    if action == "image":
         if over_image():
             return jsonify({
                 "type": "limit_image"
@@ -1967,6 +2523,9 @@ Explain, summarize, or answer based on the webpage. Use the user's language.
 
         img = make_image(msg)
 
+        remember_action(cid, "create_image", msg)
+
+        # No fake delay for image URL generation.
         return jsonify({
             "type": "image",
             "status": "creating",
@@ -1974,8 +2533,8 @@ Explain, summarize, or answer based on the webpage. Use the user's language.
         })
 
     # SEARCH MODE
-    if need_search(msg):
-        return answer_with_search(cid, msg)
+    if action == "search":
+        return answer_with_search(cid, msg, mode)
 
     # NORMAL CHAT
     if over_chat():
@@ -1983,17 +2542,247 @@ Explain, summarize, or answer based on the webpage. Use the user's language.
             "type": "limit_chat"
         })
 
-    reply = ask_ai(cid, msg)
+    remember_action(cid, "chat", msg)
+
+    reply = ask_ai(cid, msg, mode)
 
     push(cid, "user", msg)
     push(cid, "bot", reply)
 
     add_chat()
 
+    ensure_min_thinking_time(mode, started)
+
     return jsonify({
         "type": "text",
+        "status": "thinking" if mode == "thinking" else "instant",
         "reply": reply
     })
+
+
+@app.route("/chat_stream", methods=["POST"])
+def chat_stream():
+    ensure_daily()
+
+    cid = request.form.get("chat_id", "default")
+    msg = request.form.get("message", "").strip()
+    mode = normalize_mode(request.form.get("mode", "thinking"))
+
+    if not msg:
+        return Response(
+            "data: " + json.dumps({
+                "type": "error",
+                "text": "Tulis pesan dulu ya 🙂"
+            }) + "\n\n",
+            mimetype="text/event-stream"
+        )
+
+    if blocked(msg):
+        return Response(
+            "data: " + json.dumps({
+                "type": "error",
+                "text": "I can't help with that request."
+            }) + "\n\n",
+            mimetype="text/event-stream"
+        )
+
+    learn_interest(msg)
+
+    def generate():
+        started = time.time()
+        full_reply = ""
+
+        try:
+            route = smart_route(cid, msg, mode)
+            action = route.get("action", "chat")
+
+            # IMAGE GENERATION STREAM EVENT
+            if action == "image":
+                if over_image():
+                    yield "data: " + json.dumps({
+                        "type": "error",
+                        "text": "Image limit reached."
+                    }) + "\n\n"
+                    return
+
+                add_image()
+                img = make_image(msg)
+                remember_action(cid, "create_image", msg)
+
+                yield "data: " + json.dumps({
+                    "type": "image",
+                    "url": img["url"]
+                }) + "\n\n"
+
+                push(cid, "user", msg)
+                push(cid, "bot", "[image generated] " + img["url"])
+                add_chat()
+                return
+
+            # MEMORY MODE
+            if action == "memory":
+                remember_action(cid, "memory_recall", msg)
+
+                memory_text = memory_summary_text(limit=120)
+
+                prompt = f"""
+User asks about previous conversation.
+
+Saved memory:
+{memory_text}
+
+User question:
+{msg}
+
+Answer from memory only.
+Do not search.
+Do not say you are newly created.
+"""
+
+                messages = build_messages(cid, prompt, mode)
+
+            # URL MODE
+            elif action == "url":
+                link = extract_url(msg)
+                remember_action(cid, "read_url", link or msg)
+
+                content = read_url_content(link) if link else "No valid URL detected."
+
+                prompt = f"""
+User sent URL:
+{link}
+
+Webpage content:
+{content}
+
+Answer based on the webpage.
+"""
+
+                messages = build_messages(cid, prompt, mode)
+
+            # SEARCH MODE
+            elif action == "search":
+                remember_action(cid, "web_search", msg)
+
+                results = web_search(msg)
+
+                if not results:
+                    text = (
+                        "Aku sudah mencoba mencari data online, tapi belum menemukan hasil web yang cukup jelas. "
+                        "Aku tidak mau menebak untuk pertanyaan yang butuh data terbaru."
+                    )
+
+                    ensure_min_thinking_time(mode, started)
+
+                    yield "data: " + json.dumps({
+                        "type": "token",
+                        "text": text
+                    }) + "\n\n"
+
+                    full_reply += text
+                    return
+
+                context = "\n".join([
+                    f"- Title: {x['title']}\n  Snippet: {x['text']}\n  Source: {x['source']}\n  Link: {x['link']}"
+                    for x in results
+                ])
+
+                prompt = f"""
+User question:
+{msg}
+
+Live web results:
+{context}
+
+Answer based only on live web results.
+Do not guess.
+Answer in the user's language.
+"""
+
+                messages = build_messages(cid, prompt, mode)
+
+            # NORMAL CHAT
+            else:
+                remember_action(cid, "chat", msg)
+                messages = build_messages(cid, msg, mode)
+
+            stream = stream_groq(messages, mode)
+
+            # Minimum Thinking delay happens before first token.
+            ensure_min_thinking_time(mode, started)
+
+            if stream is None:
+                fallback = ask_ai(cid, msg, mode)
+
+                yield "data: " + json.dumps({
+                    "type": "token",
+                    "text": fallback
+                }) + "\n\n"
+
+                full_reply += fallback
+                return
+
+            for line in stream.iter_lines():
+                if not line:
+                    continue
+
+                raw = line.decode("utf-8")
+
+                if not raw.startswith("data: "):
+                    continue
+
+                payload = raw.replace("data: ", "").strip()
+
+                if payload == "[DONE]":
+                    break
+
+                try:
+                    data = json.loads(payload)
+                    delta = data["choices"][0].get("delta", {})
+                    token = delta.get("content", "")
+
+                    if token:
+                        full_reply += token
+
+                        yield "data: " + json.dumps({
+                            "type": "token",
+                            "text": token
+                        }) + "\n\n"
+
+                except Exception:
+                    pass
+
+            # Append source icons at end for search stream.
+            if action == "search":
+                try:
+                    results = web_search(msg)
+                    src = source_block(results)
+
+                    if src:
+                        full_reply += src
+
+                        yield "data: " + json.dumps({
+                            "type": "token",
+                            "text": src
+                        }) + "\n\n"
+
+                except Exception:
+                    pass
+
+        finally:
+            if full_reply.strip():
+                push(cid, "user", msg)
+                push(cid, "bot", full_reply.strip())
+                add_chat()
+
+            yield "data: " + json.dumps({
+                "type": "done"
+            }) + "\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream"
+    )
 
 # ==================================================
 # RUN
