@@ -146,6 +146,14 @@ function removeEmojis(text){
   return String(text || "").replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu,"");
 }
 
+function titleCase(text){
+  return String(text || "")
+    .split(" ")
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 function makeSmartTitle(text,file){
   let t = String(text || "").trim();
 
@@ -166,23 +174,30 @@ function makeSmartTitle(text,file){
   if(!t && file) return "Uploaded File";
   if(!t) return "New Chat";
 
+  const apaItu = low.match(/^apa itu\s+(.+?)[?.!]*$/i);
+  if(apaItu && apaItu[1]){
+    const topic = titleCase(apaItu[1].replace(/[?.!]/g,"").trim()).slice(0,28);
+    return "Penjelasan " + topic;
+  }
+
+  if(low.includes("python")) return "Penjelasan Python";
+  if(low.includes("javascript") || low.includes("script.js")) return "JavaScript Help";
   if(low.includes("app.py")) return "Editing app.py";
-  if(low.includes("script.js")) return "Editing script.js";
   if(low.includes("style.css")) return "Styling NeuroMV UI";
-  if(low.includes("index.html")) return "Editing NeuroMV HTML";
+  if(low.includes("index.html")) return "Editing HTML";
+  if(low.includes("flask")) return "Flask Backend Help";
+  if(low.includes("github") || low.includes("git ")) return "GitHub Workflow";
   if(low.includes("error") || low.includes("traceback")) return "Fixing Code Error";
+  if(low.includes("ocr")) return "OCR Image Reading";
   if(low.includes("gambar") || low.includes("image") || low.includes("foto")) return "Image Analysis";
+  if(low.includes("matematika") || low.includes("persamaan") || low.includes("luas")) return "Solving Math Problem";
   if(low.includes("presiden") || low.includes("sekarang") || low.includes("hari ini")) return "Live Web Search";
   if(low.includes("ingat") || low.includes("chat sebelumnya") || low.includes("barusan")) return "Memory Recall";
 
   t = t.replace(/^(tolong|please|pls|coba|bisa|bisakah|mohon|bang|bro)\s+/i,"").trim();
 
   const words = t.split(" ").filter(Boolean);
-  let title = words.slice(0,6).join(" ");
-
-  if(title.length < 8 && words.length > 6){
-    title = words.slice(0,8).join(" ");
-  }
+  let title = words.slice(0,5).join(" ");
 
   if(!title) title = "New Chat";
 
@@ -193,12 +208,24 @@ async function updateChatTitleSmart(chatId,msg,reply,file){
   const c = chats.find(x => x.id === chatId);
   if(!c) return;
 
-  // local smart title first
-  c.title = makeSmartTitle(msg || reply || "",file);
+  if(c.autoTitleDone){
+    return;
+  }
+
+  const userCount = (c.msg || []).filter(m => m.role === "user").length;
+
+  if(userCount > 1){
+    c.autoTitleDone = true;
+    saveData();
+    return;
+  }
+
+  c.title = makeSmartTitle(msg || file?.name || "",file);
+  c.autoTitleDone = true;
+
   saveData();
   renderHistory();
 
-  // optional: kalau nanti app.py punya /title, dia otomatis pakai AI title
   try{
     const fd = new FormData();
     fd.append("message", msg || "");
@@ -215,8 +242,9 @@ async function updateChatTitleSmart(chatId,msg,reply,file){
     const data = await res.json();
     const title = String(data.title || "").trim();
 
-    if(title){
+    if(title && chats.some(x => x.id === chatId)){
       c.title = title.slice(0,42);
+      c.autoTitleDone = true;
       saveData();
       renderHistory();
     }
@@ -227,7 +255,8 @@ function createChatFromFirstMessage(msg,file){
   const c = {
     id: uid(),
     title: makeSmartTitle(msg,file),
-    msg: []
+    msg: [],
+    autoTitleDone: false
   };
 
   chats.unshift(c);
@@ -376,7 +405,7 @@ function formatUserText(text){
 }
 
 // =========================
-// MATH / MARKDOWN PREMIUM
+// MATH / MARKDOWN
 // =========================
 function protectMathBlocks(text){
   const math = [];
@@ -901,12 +930,29 @@ function renderPrivateHistory(){
   showingPrivate = true;
   historyBox.innerHTML = "";
 
+  const back = document.createElement("button");
+  back.className = "new-chat-btn private-back-btn";
+  back.type = "button";
+  back.innerHTML = "← Back to Chats";
+
+  back.onclick = ()=>{
+    showingPrivate = false;
+    currentPrivate = false;
+    current = chats[0]?.id || "";
+    saveData();
+    renderHistory();
+    renderChat();
+  };
+
+  historyBox.appendChild(back);
+
   if(privateChats.length === 0){
-    historyBox.innerHTML = `
-      <div class="history-item">
-        <div class="history-title">No private chats</div>
-      </div>
+    const empty = document.createElement("div");
+    empty.className = "history-item";
+    empty.innerHTML = `
+      <div class="history-title">No private chats</div>
     `;
+    historyBox.appendChild(empty);
     return;
   }
 
@@ -1303,9 +1349,7 @@ async function sendNormalWithFile(msg,fileToSend,chatIdForTitle){
   fd.append("mode",aiMode);
   fd.append("file",fileToSend);
 
-  selectedFile = null;
-  fileInput.value = "";
-  preview.innerHTML = "";
+  clearSelectedFile();
 
   try{
     const res = await fetch("/chat",{
@@ -1357,7 +1401,9 @@ form.addEventListener("submit", async(e)=>{
 
   const msg = input.value.trim();
   const fileToSend = selectedFile;
-  const metaToRender = selectedFileMeta ? JSON.parse(JSON.stringify(selectedFileMeta)) : null;
+  const metaToRender = fileToSend && selectedFileMeta
+    ? JSON.parse(JSON.stringify(selectedFileMeta))
+    : null;
 
   if(!msg && !fileToSend) return;
 

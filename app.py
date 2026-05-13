@@ -60,9 +60,6 @@ REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "25"))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "10"))
 
 FORCE_SEARCH = os.getenv("FORCE_SEARCH", "true").lower() != "false"
-
-# Thinking mode minimum total wait time.
-# If AI processing already takes >= 10 sec, no extra delay.
 THINKING_MIN_DELAY = float(os.getenv("THINKING_MIN_DELAY", "10"))
 
 # ==================================================
@@ -105,7 +102,7 @@ CLOUDFLARE_ACCOUNT_IDS = split_keys("CLOUDFLARE_ACCOUNT_IDS") or split_keys("CLO
 CLOUDFLARE_API_TOKENS = split_keys("CLOUDFLARE_API_TOKENS") or split_keys("CLOUDFLARE_API_TOKEN")
 
 # ==================================================
-# SYSTEM PROMPTS
+# PROMPTS
 # ==================================================
 FEATURE_MANIFEST = """
 NeuroMV current capabilities:
@@ -121,7 +118,7 @@ NeuroMV current capabilities:
 - URL reader
 - File reader: PDF, DOCX, CSV, ZIP, TXT, code files
 - Vision AI image analysis
-- OCR pipeline using PaddleOCR / OCR.Space fallback
+- OCR pipeline using PaddleOCR, Gemini OCR, and optional OCR.Space fallback
 - Cloudflare Workers AI Vision
 - Gemini Vision fallback
 - Groq Vision fallback
@@ -197,6 +194,7 @@ Vision:
 - If OCR text and visual description are provided, combine both.
 - OCR text is for reading text inside images.
 - Vision description is for understanding objects, scenery, layout, and context.
+- If a math image is provided, read labels, formulas, numbers, and diagram structure carefully.
 
 Personality:
 - Be encouraging when the user succeeds.
@@ -287,7 +285,7 @@ def write_json(path, data):
         pass
 
 # ==================================================
-# TIMING / THINKING DELAY
+# TIMING
 # ==================================================
 def normalize_mode(mode):
     mode = str(mode or "thinking").strip().lower()
@@ -370,7 +368,7 @@ def add_file():
     session["file_count"] = session.get("file_count", 0) + 1
 
 # ==================================================
-# MEMORY SYSTEM
+# MEMORY
 # ==================================================
 def mem():
     if "mem" not in session:
@@ -538,7 +536,7 @@ def recent_actions(limit=30):
     return "\n".join(lines)
 
 # ==================================================
-# PROFILE / INTEREST SYSTEM
+# PROFILE / INTEREST
 # ==================================================
 def get_profile():
     db = read_json(PROFILE_FILE, {})
@@ -590,7 +588,7 @@ def learn_interest(msg):
         save_profile(p)
 
 # ==================================================
-# QUANTUM SENTINEL BLOCKER
+# BLOCKER
 # ==================================================
 LEET_MAP = str.maketrans({
     "0": "o",
@@ -1085,6 +1083,7 @@ def google_cse_search(query):
         return []
 
     pairs = []
+
     for api_key in GOOGLE_API_KEYS:
         for cse_id in GOOGLE_CSE_IDS:
             pairs.append((api_key, cse_id))
@@ -1345,7 +1344,6 @@ def web_search(query):
     for engine in engines:
         try:
             part = engine(query)
-
         except Exception:
             part = []
 
@@ -1837,7 +1835,7 @@ JSON format:
     }
 
 # ==================================================
-# OCR + VISION AI
+# OCR + VISION
 # ==================================================
 PADDLE_OCR_ENGINE = None
 
@@ -1860,13 +1858,72 @@ def get_paddle_ocr():
     if PaddleOCR is None:
         return None
 
-    if PADDLE_OCR_ENGINE is None:
+    if PADDLE_OCR_ENGINE is not None:
+        return PADDLE_OCR_ENGINE
+
+    lang = os.getenv("PADDLE_OCR_LANG", "en")
+
+    try:
         PADDLE_OCR_ENGINE = PaddleOCR(
             use_angle_cls=True,
-            lang="en"
+            lang=lang,
+            show_log=False
         )
+    except TypeError:
+        try:
+            PADDLE_OCR_ENGINE = PaddleOCR(
+                use_textline_orientation=True,
+                lang=lang
+            )
+        except Exception:
+            PADDLE_OCR_ENGINE = None
 
     return PADDLE_OCR_ENGINE
+
+
+def flatten_paddle_text(result):
+    lines = []
+
+    def walk(x):
+        if isinstance(x, dict):
+            for key in ["rec_text", "text"]:
+                if key in x and isinstance(x[key], str) and x[key].strip():
+                    lines.append(x[key].strip())
+
+            if "rec_texts" in x and isinstance(x["rec_texts"], list):
+                for t in x["rec_texts"]:
+                    if isinstance(t, str) and t.strip():
+                        lines.append(t.strip())
+
+            for v in x.values():
+                walk(v)
+
+        elif isinstance(x, (list, tuple)):
+            if (
+                len(x) >= 2
+                and isinstance(x[1], (list, tuple))
+                and len(x[1]) >= 1
+                and isinstance(x[1][0], str)
+            ):
+                text = x[1][0].strip()
+                if text:
+                    lines.append(text)
+
+            for item in x:
+                walk(item)
+
+    walk(result)
+
+    clean = []
+    seen = set()
+
+    for t in lines:
+        key = t.lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            clean.append(t)
+
+    return "\n".join(clean)
 
 
 def ocr_paddle_image(image_bytes, filename="image.jpg"):
@@ -1877,8 +1934,8 @@ def ocr_paddle_image(image_bytes, filename="image.jpg"):
             return ""
 
         suffix = ".jpg"
-
         low = filename.lower()
+
         if low.endswith(".png"):
             suffix = ".png"
         elif low.endswith(".webp"):
@@ -1889,27 +1946,22 @@ def ocr_paddle_image(image_bytes, filename="image.jpg"):
             path = tmp.name
 
         try:
-            result = engine.ocr(path, cls=True)
+            try:
+                result = engine.ocr(path, cls=True)
+            except TypeError:
+                try:
+                    result = engine.ocr(path)
+                except Exception:
+                    result = engine.predict(path)
         finally:
             try:
                 os.remove(path)
             except Exception:
                 pass
 
-        lines = []
+        text = flatten_paddle_text(result)
 
-        if result:
-            for page in result:
-                if page:
-                    for item in page:
-                        try:
-                            text = item[1][0]
-                            if text:
-                                lines.append(text)
-                        except Exception:
-                            pass
-
-        return "\n".join(lines)[:5000]
+        return text[:5000]
 
     except Exception:
         return ""
@@ -1961,9 +2013,82 @@ def ocr_space_image(image_bytes):
     return ""
 
 
+def ask_vision_gemini(prompt, image_bytes, filename):
+    if not GEMINI_KEYS:
+        return None
+
+    b64 = base64.b64encode(image_bytes).decode()
+    mime = image_mime(filename)
+
+    for key in shuffled(GEMINI_KEYS):
+        for _ in range(MAX_RETRIES):
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+
+                payload = {
+                    "contents": [
+                        {
+                            "parts": [
+                                {
+                                    "text": prompt or "Analyze this image clearly."
+                                },
+                                {
+                                    "inline_data": {
+                                        "mime_type": mime,
+                                        "data": b64
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+
+                r = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
+
+                if r.status_code == 200:
+                    data = r.json()
+                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+                if r.status_code in [400, 401, 403, 404, 429]:
+                    break
+
+            except Exception:
+                pass
+
+            time.sleep(0.35)
+
+    return None
+
+
+def ocr_gemini_image(image_bytes, filename):
+    prompt = """
+Read and transcribe all visible text from this image as accurately as possible.
+
+Important:
+- Include printed text, handwriting if visible, math expressions, labels, numbers, and units.
+- Preserve equations and symbols as much as possible.
+- If there are geometry labels, include them.
+- Preserve line breaks when helpful.
+- If no text is readable, say only: No readable text.
+"""
+
+    out = ask_vision_gemini(prompt, image_bytes, filename)
+
+    if not out:
+        return ""
+
+    low = out.lower()
+
+    if "no readable text" in low or "no text" in low:
+        return ""
+
+    return out[:5000]
+
+
 def ocr_image(image_bytes, filename):
     return (
         ocr_paddle_image(image_bytes, filename)
+        or ocr_gemini_image(image_bytes, filename)
         or ocr_space_image(image_bytes)
     )
 
@@ -2020,53 +2145,6 @@ def cloudflare_vision(prompt, image_bytes):
 
                     if isinstance(result, str):
                         return result.strip()
-
-                if r.status_code in [400, 401, 403, 404, 429]:
-                    break
-
-            except Exception:
-                pass
-
-            time.sleep(0.35)
-
-    return None
-
-
-def ask_vision_gemini(prompt, image_bytes, filename):
-    if not GEMINI_KEYS:
-        return None
-
-    b64 = base64.b64encode(image_bytes).decode()
-    mime = image_mime(filename)
-
-    for key in shuffled(GEMINI_KEYS):
-        for _ in range(MAX_RETRIES):
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
-
-                payload = {
-                    "contents": [
-                        {
-                            "parts": [
-                                {
-                                    "text": prompt or "Analyze this image clearly."
-                                },
-                                {
-                                    "inline_data": {
-                                        "mime_type": mime,
-                                        "data": b64
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                }
-
-                r = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
-
-                if r.status_code == 200:
-                    data = r.json()
-                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
                 if r.status_code in [400, 401, 403, 404, 429]:
                     break
@@ -2172,8 +2250,18 @@ def analyze_image_full(cid, user_msg, image_bytes, filename, mode="thinking"):
 
     ocr_text = ocr_image(image_bytes, filename)
 
+    vision_prompt = f"""
+Analyze this image like a human observer.
+
+Also read any visible text, labels, equations, numbers, math notation, geometry labels, and instructions.
+If the image contains a math problem, describe the diagram and extract all given information.
+
+User question:
+{user_msg or 'Explain this image clearly.'}
+"""
+
     vision_text = vision_image(
-        user_msg or "Describe this image clearly like a human observer.",
+        vision_prompt,
         image_bytes,
         filename
     )
@@ -2197,9 +2285,10 @@ User question:
 {user_msg or 'Explain this image clearly.'}
 
 Answer naturally as NeuroMV.
-Use OCR for text details.
-Use visual description for objects, scenery, layout, and context.
-If the image cannot be analyzed enough, say it honestly.
+Use OCR for exact text details.
+Use visual description for objects, scenery, layout, diagram, and context.
+If this is a math problem, solve it step-by-step based only on visible information.
+If information is missing or unclear, say what is unclear.
 """
 
     reply = ask_ai(cid, ask, mode)
@@ -2364,6 +2453,90 @@ Rules:
     })
 
 # ==================================================
+# TITLE ROUTE
+# ==================================================
+def clean_chat_title(title):
+    title = str(title or "").strip()
+    title = re.sub(r"[\n\r]+", " ", title)
+    title = re.sub(r"[*_`#>\[\]{}]", "", title)
+    title = re.sub(r"\s+", " ", title).strip()
+    title = title.strip("\"'“”‘’")
+
+    if not title:
+        return ""
+
+    return title[:42]
+
+
+@app.route("/title", methods=["POST"])
+def title_chat():
+    msg = request.form.get("message", "").strip()
+    reply = request.form.get("reply", "").strip()
+    file = request.form.get("file", "").strip()
+
+    base = msg or file or reply
+
+    if not base:
+        return jsonify({
+            "title": "New Chat"
+        })
+
+    prompt = f"""
+Create a short ChatGPT-style chat title.
+
+Rules:
+- 2 to 5 words.
+- Use the user's language when possible.
+- No emoji.
+- No quotes.
+- Do not use a full sentence.
+- Capture the main topic, not the whole message.
+- Examples:
+  "Apa itu Python?" -> "Penjelasan Python"
+  "Tolong fix app.py error" -> "Fixing app.py Error"
+  "Gimana cara jadi jago coding?" -> "Belajar Coding"
+  "Analisis gambar matematika ini" -> "Analisis Soal Matematika"
+
+User first message:
+{msg}
+
+Uploaded file:
+{file}
+
+Assistant reply summary:
+{reply[:1000]}
+
+Return only the title.
+"""
+
+    messages = [
+        {
+            "role": "system",
+            "content": "You create short chat titles. Return only the title."
+        },
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+
+    out = (
+        ask_groq(messages, mode="instant")
+        or ask_cerebras(messages)
+        or ask_gemini_text(prompt)
+        or ""
+    )
+
+    title = clean_chat_title(out)
+
+    if not title:
+        title = clean_chat_title(msg or file or "New Chat")
+
+    return jsonify({
+        "title": title or "New Chat"
+    })
+
+# ==================================================
 # ROUTES
 # ==================================================
 @app.route("/")
@@ -2416,8 +2589,8 @@ def chat():
 
                 if not reply:
                     reply = (
-                        "🖼️ Aku menerima gambarnya, tapi Vision AI belum berhasil membaca gambar ini. "
-                        "Pastikan CLOUDFLARE_API_TOKEN / GEMINI_API_KEY / GROQ_API_KEY aktif."
+                        "🖼️ Aku menerima gambarnya, tapi Vision/OCR AI belum berhasil membaca gambar ini. "
+                        "Pastikan GEMINI_API_KEY, CLOUDFLARE_API_TOKEN, atau GROQ_API_KEY aktif."
                     )
 
                 push(cid, "user", "[image] " + f.filename + (" " + msg if msg else ""))
@@ -2475,11 +2648,9 @@ User request:
     route = smart_route(cid, msg, mode)
     action = route.get("action", "chat")
 
-    # MEMORY MODE
     if action == "memory":
         return answer_with_memory(cid, msg, mode)
 
-    # URL MODE
     if action == "url":
         link = extract_url(msg)
 
@@ -2512,7 +2683,6 @@ Explain, summarize, or answer based on the webpage. Use the user's language.
                 "reply": reply + "<br><br>" + favicon_html(link)
             })
 
-    # IMAGE GENERATION
     if action == "image":
         if over_image():
             return jsonify({
@@ -2525,18 +2695,15 @@ Explain, summarize, or answer based on the webpage. Use the user's language.
 
         remember_action(cid, "create_image", msg)
 
-        # No fake delay for image URL generation.
         return jsonify({
             "type": "image",
             "status": "creating",
             "url": img["url"]
         })
 
-    # SEARCH MODE
     if action == "search":
         return answer_with_search(cid, msg, mode)
 
-    # NORMAL CHAT
     if over_chat():
         return jsonify({
             "type": "limit_chat"
@@ -2591,12 +2758,12 @@ def chat_stream():
     def generate():
         started = time.time()
         full_reply = ""
+        search_results_cache = []
 
         try:
             route = smart_route(cid, msg, mode)
             action = route.get("action", "chat")
 
-            # IMAGE GENERATION STREAM EVENT
             if action == "image":
                 if over_image():
                     yield "data: " + json.dumps({
@@ -2619,7 +2786,6 @@ def chat_stream():
                 add_chat()
                 return
 
-            # MEMORY MODE
             if action == "memory":
                 remember_action(cid, "memory_recall", msg)
 
@@ -2641,7 +2807,6 @@ Do not say you are newly created.
 
                 messages = build_messages(cid, prompt, mode)
 
-            # URL MODE
             elif action == "url":
                 link = extract_url(msg)
                 remember_action(cid, "read_url", link or msg)
@@ -2660,11 +2825,11 @@ Answer based on the webpage.
 
                 messages = build_messages(cid, prompt, mode)
 
-            # SEARCH MODE
             elif action == "search":
                 remember_action(cid, "web_search", msg)
 
                 results = web_search(msg)
+                search_results_cache = results
 
                 if not results:
                     text = (
@@ -2701,14 +2866,12 @@ Answer in the user's language.
 
                 messages = build_messages(cid, prompt, mode)
 
-            # NORMAL CHAT
             else:
                 remember_action(cid, "chat", msg)
                 messages = build_messages(cid, msg, mode)
 
             stream = stream_groq(messages, mode)
 
-            # Minimum Thinking delay happens before first token.
             ensure_min_thinking_time(mode, started)
 
             if stream is None:
@@ -2752,12 +2915,9 @@ Answer in the user's language.
                 except Exception:
                     pass
 
-            # Append source icons at end for search stream.
             if action == "search":
                 try:
-                    results = web_search(msg)
-                    src = source_block(results)
-
+                    src = source_block(search_results_cache)
                     if src:
                         full_reply += src
 
@@ -2765,7 +2925,6 @@ Answer in the user's language.
                             "type": "token",
                             "text": src
                         }) + "\n\n"
-
                 except Exception:
                     pass
 
