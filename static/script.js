@@ -1,6 +1,7 @@
 // =========================
 // NEUROMV ULTRA FINAL SCRIPT.JS
-// STREAMING + STOP + MODE SWITCH + PRIVATE + MARKDOWN + PREVIEW + CLICKABLE LINKS
+// STREAMING + STOP + MODE SWITCH + PRIVATE FIX
+// CHAT ATTACHMENT PREVIEW + PASTE IMAGE + SMART TITLE + CLICKABLE LINKS
 // =========================
 
 // =========================
@@ -11,6 +12,8 @@ let privateChats = JSON.parse(localStorage.getItem("neuromv_private") || "[]");
 let current = localStorage.getItem("neuromv_current") || "";
 
 let selectedFile = null;
+let selectedFileMeta = null;
+
 let renameTarget = null;
 let deleteTarget = null;
 
@@ -23,12 +26,8 @@ let aiMode = localStorage.getItem("neuromv_mode") || "thinking";
 let activeController = null;
 let isGenerating = false;
 
-let persistentPreview = null;
-try{
-  persistentPreview = JSON.parse(sessionStorage.getItem("neuromv_file_preview") || "null");
-}catch{
-  persistentPreview = null;
-}
+let showingPrivate = false;
+let currentPrivate = false;
 
 // =========================
 // ELEMENTS
@@ -97,7 +96,19 @@ function saveData(){
 }
 
 function currentChat(){
+  if(currentPrivate){
+    return privateChats.find(x => x.id === current);
+  }
+
   return chats.find(x => x.id === current);
+}
+
+function renderSidebarList(){
+  if(showingPrivate || currentPrivate){
+    renderPrivateHistory();
+  }else{
+    renderHistory();
+  }
 }
 
 function scrollBottom(){
@@ -124,6 +135,110 @@ function formatSize(bytes){
   if(bytes < 1024) return bytes + " B";
   if(bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function cleanupEmptyChats(){
+  chats = chats.filter(c => Array.isArray(c.msg) && c.msg.length > 0);
+  privateChats = privateChats.filter(c => Array.isArray(c.msg) && c.msg.length > 0);
+}
+
+function removeEmojis(text){
+  return String(text || "").replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu,"");
+}
+
+function makeSmartTitle(text,file){
+  let t = String(text || "").trim();
+
+  if(!t && file){
+    t = file.name || "Uploaded file";
+  }
+
+  t = t
+    .replace(/https?:\/\/\S+/gi,"Link")
+    .replace(/[`*_#>\[\]{}()]/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+
+  t = removeEmojis(t);
+
+  const low = t.toLowerCase();
+
+  if(!t && file) return "Uploaded File";
+  if(!t) return "New Chat";
+
+  if(low.includes("app.py")) return "Editing app.py";
+  if(low.includes("script.js")) return "Editing script.js";
+  if(low.includes("style.css")) return "Styling NeuroMV UI";
+  if(low.includes("index.html")) return "Editing NeuroMV HTML";
+  if(low.includes("error") || low.includes("traceback")) return "Fixing Code Error";
+  if(low.includes("gambar") || low.includes("image") || low.includes("foto")) return "Image Analysis";
+  if(low.includes("presiden") || low.includes("sekarang") || low.includes("hari ini")) return "Live Web Search";
+  if(low.includes("ingat") || low.includes("chat sebelumnya") || low.includes("barusan")) return "Memory Recall";
+
+  t = t.replace(/^(tolong|please|pls|coba|bisa|bisakah|mohon|bang|bro)\s+/i,"").trim();
+
+  const words = t.split(" ").filter(Boolean);
+  let title = words.slice(0,6).join(" ");
+
+  if(title.length < 8 && words.length > 6){
+    title = words.slice(0,8).join(" ");
+  }
+
+  if(!title) title = "New Chat";
+
+  return title.length > 38 ? title.slice(0,38).trim() + "..." : title;
+}
+
+async function updateChatTitleSmart(chatId,msg,reply,file){
+  const c = chats.find(x => x.id === chatId);
+  if(!c) return;
+
+  // local smart title first
+  c.title = makeSmartTitle(msg || reply || "",file);
+  saveData();
+  renderHistory();
+
+  // optional: kalau nanti app.py punya /title, dia otomatis pakai AI title
+  try{
+    const fd = new FormData();
+    fd.append("message", msg || "");
+    fd.append("reply", reply || "");
+    fd.append("file", file?.name || "");
+
+    const res = await fetch("/title",{
+      method:"POST",
+      body:fd
+    });
+
+    if(!res.ok) return;
+
+    const data = await res.json();
+    const title = String(data.title || "").trim();
+
+    if(title){
+      c.title = title.slice(0,42);
+      saveData();
+      renderHistory();
+    }
+  }catch{}
+}
+
+function createChatFromFirstMessage(msg,file){
+  const c = {
+    id: uid(),
+    title: makeSmartTitle(msg,file),
+    msg: []
+  };
+
+  chats.unshift(c);
+  current = c.id;
+  currentPrivate = false;
+  showingPrivate = false;
+
+  saveData();
+  renderHistory();
+
+  return c;
 }
 
 // =========================
@@ -155,7 +270,7 @@ function stopGenerating(){
 }
 
 // =========================
-// BACKEND STATUS CLEANER
+// STATUS CLEANER
 // =========================
 function cleanBackendStatus(text){
   return String(text || "")
@@ -212,7 +327,6 @@ function linkifyHtml(html){
 
     let match;
     let last = 0;
-
     const frag = document.createDocumentFragment();
 
     while((match = regex.exec(text)) !== null){
@@ -262,8 +376,26 @@ function formatUserText(text){
 }
 
 // =========================
-// MARKDOWN PREMIUM
+// MATH / MARKDOWN PREMIUM
 // =========================
+function protectMathBlocks(text){
+  const math = [];
+
+  text = String(text || "").replace(/\$\$([\s\S]*?)\$\$/g,(_,body)=>{
+    const id = math.length;
+    math.push(`<div class="math-block">\\[${esc(body.trim())}\\]</div>`);
+    return `@@MATH_BLOCK_${id}@@`;
+  });
+
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g,(_,body)=>{
+    const id = math.length;
+    math.push(`<span class="math-inline">\\(${esc(body.trim())}\\)</span>`);
+    return `@@MATH_BLOCK_${id}@@`;
+  });
+
+  return {text,math};
+}
+
 function restoreSafeBackendHtml(html){
   html = html.replace(/&lt;br\s*\/?&gt;/gi,"<br>");
 
@@ -306,6 +438,9 @@ function restoreSafeBackendHtml(html){
 function parseMarkdown(text){
   text = cleanBackendStatus(text);
 
+  const protectedMath = protectMathBlocks(text);
+  text = protectedMath.text;
+
   const blocks = [];
 
   text = String(text).replace(/```([a-zA-Z0-9_+\-.#]*)?\n([\s\S]*?)```/g, (_,lang,code)=>{
@@ -343,10 +478,22 @@ function parseMarkdown(text){
     html = html.replace(`@@NEUROMV_CODEBLOCK_${i}@@`, block);
   });
 
+  protectedMath.math.forEach((block,i)=>{
+    html = html.replace(`@@MATH_BLOCK_${i}@@`, block);
+  });
+
   html = restoreSafeBackendHtml(html);
   html = linkifyHtml(html);
 
   return html;
+}
+
+function renderMath(){
+  try{
+    if(window.MathJax && window.MathJax.typesetPromise){
+      window.MathJax.typesetPromise();
+    }
+  }catch{}
 }
 
 function applyHighlight(){
@@ -357,6 +504,8 @@ function applyHighlight(){
       }catch{}
     });
   }
+
+  renderMath();
 }
 
 function copyCode(id,btn){
@@ -410,6 +559,8 @@ function initModeToggle(){
 
   wrap.querySelectorAll("button").forEach(btn=>{
     btn.onclick = ()=>{
+      if(isGenerating) return;
+
       aiMode = btn.dataset.mode;
       localStorage.setItem("neuromv_mode", aiMode);
       updateModeUI();
@@ -424,13 +575,11 @@ function updateModeUI(){
 }
 
 // =========================
-// PREMIUM STATUS LOADER
+// STATUS LOADER
 // =========================
 function isImageFile(file){
   if(!file) return false;
-
   if(file.type && file.type.startsWith("image/")) return true;
-
   return /\.(png|jpg|jpeg|webp)$/i.test(file.name || "");
 }
 
@@ -530,7 +679,6 @@ function createStatusBubble(label){
 
 function updateStatusBubble(row,label){
   if(!row) return;
-
   const text = row.querySelector(".glossy-text");
   if(text) text.textContent = label;
 }
@@ -559,89 +707,150 @@ async function getRouteAction(msg,signal){
     if(looksLikeMemory(msg)) return "memory";
     if(looksLikeImagePrompt(msg)) return "image";
     if(looksLikeSearch(msg)) return "search";
-
     return "chat";
   }
 }
 
 // =========================
-// PERSISTENT FILE PREVIEW
+// FILE PREVIEW
 // =========================
-function savePersistentPreview(meta){
-  persistentPreview = meta;
-  sessionStorage.setItem("neuromv_file_preview", JSON.stringify(meta));
-  renderPersistentPreview();
+function fileToMeta(file,callback){
+  const meta = {
+    name: file.name,
+    type: file.type || "file",
+    size: file.size,
+    time: Date.now(),
+    dataUrl: ""
+  };
+
+  if(isImageFile(file)){
+    const reader = new FileReader();
+
+    reader.onload = ()=>{
+      meta.dataUrl = reader.result;
+      callback(meta);
+    };
+
+    reader.readAsDataURL(file);
+  }else{
+    callback(meta);
+  }
 }
 
-function clearPersistentPreview(){
-  persistentPreview = null;
+function setSelectedFile(file){
+  selectedFile = file;
+
+  fileToMeta(file,(meta)=>{
+    selectedFileMeta = meta;
+    renderInputPreview();
+  });
+}
+
+function clearSelectedFile(){
   selectedFile = null;
-
+  selectedFileMeta = null;
   if(fileInput) fileInput.value = "";
-  sessionStorage.removeItem("neuromv_file_preview");
-
   if(preview) preview.innerHTML = "";
 }
 
-function renderPersistentPreview(){
-  if(!preview){
+function renderInputPreview(){
+  if(!preview || !selectedFileMeta){
+    if(preview) preview.innerHTML = "";
     return;
   }
 
-  if(!persistentPreview){
-    preview.innerHTML = "";
-    return;
-  }
+  const isImg = selectedFileMeta.type && selectedFileMeta.type.startsWith("image/");
 
-  const isImg = persistentPreview.type && persistentPreview.type.startsWith("image/");
-  const note = selectedFile ? "" : `<small class="preview-note">Preview only — choose file again to resend</small>`;
-
-  if(isImg && persistentPreview.dataUrl){
+  if(isImg && selectedFileMeta.dataUrl){
     preview.innerHTML = `
       <div class="preview-card image-preview-card">
-        <img src="${persistentPreview.dataUrl}" class="preview-img">
+        <img src="${selectedFileMeta.dataUrl}" class="preview-img">
         <div class="preview-info">
-          <span>🖼️ ${esc(persistentPreview.name)}</span>
-          <small>${formatSize(persistentPreview.size)}</small>
-          ${note}
+          <span>🖼️ ${esc(selectedFileMeta.name)}</span>
+          <small>${formatSize(selectedFileMeta.size)}</small>
         </div>
-        <button type="button" class="preview-x" onclick="clearPersistentPreview()">×</button>
+        <button type="button" class="preview-x" onclick="clearSelectedFile()">×</button>
       </div>
     `;
   }else{
     preview.innerHTML = `
       <div class="preview-card">
         <div class="preview-info">
-          <span>📎 ${esc(persistentPreview.name)}</span>
-          <small>${formatSize(persistentPreview.size)}</small>
-          ${note}
+          <span>📎 ${esc(selectedFileMeta.name)}</span>
+          <small>${formatSize(selectedFileMeta.size)}</small>
         </div>
-        <button type="button" class="preview-x" onclick="clearPersistentPreview()">×</button>
+        <button type="button" class="preview-x" onclick="clearSelectedFile()">×</button>
       </div>
     `;
   }
 }
 
+function renderChatAttachment(meta,save=true){
+  if(!meta) return;
+
+  const row = document.createElement("div");
+  row.className = "user-row attachment-row";
+
+  const isImg = meta.type && meta.type.startsWith("image/");
+
+  if(isImg && meta.dataUrl){
+    row.innerHTML = `
+      <div class="user-attachment-card">
+        <img src="${meta.dataUrl}" class="chat-upload-preview">
+        <div class="attachment-info">
+          <span>🖼️ ${esc(meta.name)}</span>
+          <small>${formatSize(meta.size)}</small>
+        </div>
+      </div>
+    `;
+  }else{
+    row.innerHTML = `
+      <div class="user-attachment-card">
+        <div class="file-icon">📎</div>
+        <div class="attachment-info">
+          <span>${esc(meta.name)}</span>
+          <small>${formatSize(meta.size)}</small>
+        </div>
+      </div>
+    `;
+  }
+
+  chatBox.appendChild(row);
+
+  if(save){
+    const c = currentChat();
+    if(c){
+      c.msg.push({
+        type:"attachment",
+        meta
+      });
+      saveData();
+    }
+  }
+
+  scrollBottom();
+}
+
 // =========================
 // INIT CHAT
 // =========================
-function ensureChat(){
-  if(chats.length === 0){
-    newChat();
-  }else if(!current){
-    current = chats[0].id;
+function ensureInitialState(){
+  cleanupEmptyChats();
+
+  if(current && !chats.some(c => c.id === current)){
+    current = "";
   }
+
+  currentPrivate = false;
+  showingPrivate = false;
+
+  saveData();
 }
 
 function newChat(){
-  const c = {
-    id: uid(),
-    title: "New Chat",
-    msg: []
-  };
-
-  chats.unshift(c);
-  current = c.id;
+  current = "";
+  currentPrivate = false;
+  showingPrivate = false;
 
   saveData();
   renderHistory();
@@ -653,13 +862,14 @@ function newChat(){
 // HISTORY
 // =========================
 function renderHistory(){
+  showingPrivate = false;
   historyBox.innerHTML = "";
 
   chats.forEach(c=>{
     const div = document.createElement("div");
     div.className = "history-item";
 
-    if(c.id === current) div.classList.add("active");
+    if(!currentPrivate && c.id === current) div.classList.add("active");
 
     div.innerHTML = `
       <div class="history-top">
@@ -670,6 +880,8 @@ function renderHistory(){
 
     div.onclick = ()=>{
       current = c.id;
+      currentPrivate = false;
+      showingPrivate = false;
       saveData();
       renderHistory();
       renderChat();
@@ -679,6 +891,51 @@ function renderHistory(){
     div.querySelector(".icon-btn").onclick = (e)=>{
       e.stopPropagation();
       openChatMenu(c.id,e.target);
+    };
+
+    historyBox.appendChild(div);
+  });
+}
+
+function renderPrivateHistory(){
+  showingPrivate = true;
+  historyBox.innerHTML = "";
+
+  if(privateChats.length === 0){
+    historyBox.innerHTML = `
+      <div class="history-item">
+        <div class="history-title">No private chats</div>
+      </div>
+    `;
+    return;
+  }
+
+  privateChats.forEach(c=>{
+    const div = document.createElement("div");
+    div.className = "history-item";
+
+    if(currentPrivate && c.id === current) div.classList.add("active");
+
+    div.innerHTML = `
+      <div class="history-top">
+        <div class="history-title">🔒 ${esc(c.title)}</div>
+        <button class="icon-btn" type="button">⋮</button>
+      </div>
+    `;
+
+    div.onclick = ()=>{
+      current = c.id;
+      currentPrivate = true;
+      showingPrivate = true;
+      saveData();
+      renderPrivateHistory();
+      renderChat();
+      closeSidebarMobile();
+    };
+
+    div.querySelector(".icon-btn").onclick = (e)=>{
+      e.stopPropagation();
+      openPrivateMenu(c.id,e.target);
     };
 
     historyBox.appendChild(div);
@@ -695,9 +952,9 @@ function openChatMenu(id,btn){
   menu.className = "mini-menu";
 
   menu.innerHTML = `
-    <button type="button" onclick="openRename('${id}',false)">✏ Rename</button>
-    <button type="button" onclick="movePrivate('${id}')">🔒 Private</button>
-    <button type="button" onclick="askDelete('${id}',false)">🗑 Delete</button>
+    <button type="button" onclick="event.stopPropagation(); openRename('${id}',false)">✏ Rename</button>
+    <button type="button" onclick="event.stopPropagation(); movePrivate('${id}')">🔒 Private</button>
+    <button type="button" onclick="event.stopPropagation(); askDelete('${id}',false)">🗑 Delete</button>
   `;
 
   btn.parentElement.appendChild(menu);
@@ -710,9 +967,9 @@ function openPrivateMenu(id,btn){
   menu.className = "mini-menu";
 
   menu.innerHTML = `
-    <button type="button" onclick="openRename('${id}',true)">✏ Rename</button>
-    <button type="button" onclick="prepareUnprivate('${id}')">🔓 Unprivate</button>
-    <button type="button" onclick="askDelete('${id}',true)">🗑 Delete</button>
+    <button type="button" onclick="event.stopPropagation(); openRename('${id}',true)">✏ Rename</button>
+    <button type="button" onclick="event.stopPropagation(); prepareUnprivate('${id}')">🔓 Un-private</button>
+    <button type="button" onclick="event.stopPropagation(); askDelete('${id}',true)">🗑 Delete</button>
   `;
 
   btn.parentElement.appendChild(menu);
@@ -732,11 +989,19 @@ function toggleMoreMenu(){
   menu.style.top = (r.bottom + 8) + "px";
   menu.style.right = "10px";
 
-  menu.innerHTML = `
-    <button type="button" onclick="openRename('${current}',false)">✏ Rename</button>
-    <button type="button" onclick="movePrivate('${current}')">🔒 Private</button>
-    <button type="button" onclick="askDelete('${current}',false)">🗑 Delete</button>
-  `;
+  if(currentPrivate){
+    menu.innerHTML = `
+      <button type="button" onclick="event.stopPropagation(); openRename('${current}',true)">✏ Rename</button>
+      <button type="button" onclick="event.stopPropagation(); prepareUnprivate('${current}')">🔓 Un-private</button>
+      <button type="button" onclick="event.stopPropagation(); askDelete('${current}',true)">🗑 Delete</button>
+    `;
+  }else{
+    menu.innerHTML = `
+      <button type="button" onclick="event.stopPropagation(); openRename('${current}',false)">✏ Rename</button>
+      <button type="button" onclick="event.stopPropagation(); movePrivate('${current}')">🔒 Private</button>
+      <button type="button" onclick="event.stopPropagation(); askDelete('${current}',false)">🗑 Delete</button>
+    `;
+  }
 
   document.body.appendChild(menu);
 }
@@ -748,9 +1013,8 @@ function renderChat(){
   chatBox.innerHTML = "";
 
   const c = currentChat();
-  if(!c) return;
 
-  if(c.msg.length === 0){
+  if(!c){
     chatBox.innerHTML = `
       <div class="welcome">
         <h2>NeuroMV</h2>
@@ -760,9 +1024,21 @@ function renderChat(){
     return;
   }
 
+  if(c.msg.length === 0){
+    chatBox.innerHTML = `
+      <div class="welcome">
+        <h2>NeuroMV</h2>
+        <p>Start a new conversation</p>
+      </div>
+    `;
+    return;
+  }
+
   c.msg.forEach(m=>{
     if(m.type === "image"){
       bubbleImage(m.url,false);
+    }else if(m.type === "attachment"){
+      renderChatAttachment(m.meta,false);
     }else{
       bubble(m.text,m.role,false,false);
     }
@@ -793,7 +1069,7 @@ function bubble(text,role="bot",save=true,typing=false){
 
     function run(){
       if(i <= cleanText.length){
-        box.innerHTML = parseMarkdown(cleanText.slice(0,i)) + `<span class="typing-cursor"></span>`;
+        box.innerHTML = parseMarkdown(cleanText.slice(0,i)) + `<span class="typing-dot">●</span>`;
         i++;
         scrollBottom();
         setTimeout(run,speed);
@@ -821,11 +1097,11 @@ function bubble(text,role="bot",save=true,typing=false){
       });
 
       if(c.msg.length === 1 && role === "user"){
-        c.title = cleanText.slice(0,30);
+        c.title = makeSmartTitle(cleanText,null);
       }
 
       saveData();
-      renderHistory();
+      renderSidebarList();
     }
   }
 
@@ -854,6 +1130,7 @@ function bubbleImage(url,save=true){
       });
 
       saveData();
+      renderSidebarList();
     }
   }
 
@@ -890,22 +1167,26 @@ function saveBotMessage(text){
     });
 
     saveData();
-    renderHistory();
+    renderSidebarList();
   }
 }
 
 // =========================
 // STREAMING TEXT SEND
 // =========================
-async function sendStreamingMessage(msg){
+async function sendStreamingMessage(msg,chatIdForTitle){
   activeController = new AbortController();
   setGeneratingState(true);
 
-  let action = "chat";
-  const load = createStatusBubble(aiMode === "thinking" ? "Deep Thinking" : "Instant");
+  let load = null;
+  let streamBox = null;
+  let full = "";
+  let gotImage = false;
 
   try{
-    action = await getRouteAction(msg,activeController.signal);
+    load = createStatusBubble(aiMode === "thinking" ? "Deep Thinking" : "Instant");
+
+    const action = await getRouteAction(msg,activeController.signal);
     updateStatusBubble(load,labelFromAction(action,msg,null));
 
     const fd = new FormData();
@@ -920,19 +1201,18 @@ async function sendStreamingMessage(msg){
     });
 
     load.remove();
+    load = null;
 
-    const {box} = createBotStreamingBubble();
+    const bot = createBotStreamingBubble();
+    streamBox = bot.box;
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder("utf-8");
 
     let buffer = "";
-    let full = "";
-    let gotImage = false;
 
     while(true){
       const {done,value} = await reader.read();
-
       if(done) break;
 
       buffer += decoder.decode(value,{stream:true});
@@ -942,7 +1222,6 @@ async function sendStreamingMessage(msg){
 
       for(const part of parts){
         const line = part.trim();
-
         if(!line.startsWith("data:")) continue;
 
         const jsonText = line.replace(/^data:\s*/,"");
@@ -952,45 +1231,51 @@ async function sendStreamingMessage(msg){
 
           if(data.type === "token"){
             full += data.text || "";
-            box.innerHTML = parseMarkdown(full) + `<span class="typing-cursor"></span>`;
+            streamBox.innerHTML = parseMarkdown(full) + `<span class="typing-dot">●</span>`;
             scrollBottom();
           }
 
           if(data.type === "image"){
             gotImage = true;
-            box.parentElement.remove();
+            streamBox.parentElement.remove();
             bubbleImage(data.url,true);
           }
 
           if(data.type === "error"){
             full += data.text || "Error.";
-            box.innerHTML = parseMarkdown(full);
+            streamBox.innerHTML = parseMarkdown(full);
             scrollBottom();
           }
 
           if(data.type === "done"){
             if(!gotImage){
-              box.innerHTML = parseMarkdown(full);
+              streamBox.innerHTML = parseMarkdown(full);
               applyHighlight();
             }
           }
-
         }catch{}
       }
     }
 
     if(!gotImage){
-      box.innerHTML = parseMarkdown(full);
+      streamBox.innerHTML = parseMarkdown(full);
       applyHighlight();
       saveBotMessage(full);
+      updateChatTitleSmart(chatIdForTitle,msg,full,null);
     }
 
   }catch(err){
-    load.remove();
+    if(load) load.remove();
 
     if(err.name === "AbortError"){
-      const stopped = "_Generation stopped._";
-      bubble(stopped,"bot",true,false);
+      if(streamBox){
+        full += "\n\n_Generation stopped._";
+        streamBox.innerHTML = parseMarkdown(full);
+        applyHighlight();
+        saveBotMessage(full);
+      }else{
+        bubble("_Generation stopped._","bot",true,false);
+      }
     }else{
       bubble("Connection error.","bot",true,false);
     }
@@ -1005,7 +1290,7 @@ async function sendStreamingMessage(msg){
 // =========================
 // NORMAL FILE SEND
 // =========================
-async function sendNormalWithFile(msg,fileToSend){
+async function sendNormalWithFile(msg,fileToSend,chatIdForTitle){
   activeController = new AbortController();
   setGeneratingState(true);
 
@@ -1020,7 +1305,7 @@ async function sendNormalWithFile(msg,fileToSend){
 
   selectedFile = null;
   fileInput.value = "";
-  renderPersistentPreview();
+  preview.innerHTML = "";
 
   try{
     const res = await fetch("/chat",{
@@ -1035,11 +1320,13 @@ async function sendNormalWithFile(msg,fileToSend){
 
     if(data.type === "image"){
       bubbleImage(data.url,true);
+      updateChatTitleSmart(chatIdForTitle,msg,"Image generated",fileToSend);
       return;
     }
 
     const reply = cleanBackendStatus(data.reply || "No response.");
     bubble(reply,"bot",true,aiMode === "thinking");
+    updateChatTitleSmart(chatIdForTitle,msg,reply,fileToSend);
 
   }catch(err){
     load.remove();
@@ -1070,13 +1357,22 @@ form.addEventListener("submit", async(e)=>{
 
   const msg = input.value.trim();
   const fileToSend = selectedFile;
+  const metaToRender = selectedFileMeta ? JSON.parse(JSON.stringify(selectedFileMeta)) : null;
 
   if(!msg && !fileToSend) return;
 
-  if(!current) newChat();
+  if(!currentChat()){
+    createChatFromFirstMessage(msg,fileToSend);
+  }
+
+  const chatIdForTitle = current;
 
   const welcome = chatBox.querySelector(".welcome");
   if(welcome) welcome.remove();
+
+  if(metaToRender){
+    renderChatAttachment(metaToRender,true);
+  }
 
   if(msg){
     bubble(msg,"user",true,false);
@@ -1087,51 +1383,59 @@ form.addEventListener("submit", async(e)=>{
   input.value = "";
 
   if(fileToSend){
-    await sendNormalWithFile(msg,fileToSend);
+    await sendNormalWithFile(msg,fileToSend,chatIdForTitle);
   }else{
-    await sendStreamingMessage(msg);
+    await sendStreamingMessage(msg,chatIdForTitle);
   }
 });
 
 // =========================
-// FILE PREVIEW
+// FILE INPUT + PASTE IMAGE
 // =========================
-function clearSelectedFile(){
-  clearPersistentPreview();
-}
-
 fileInput.addEventListener("change",()=>{
   const f = fileInput.files[0];
   if(!f) return;
-
-  selectedFile = f;
-
-  const meta = {
-    name: f.name,
-    type: f.type || "file",
-    size: f.size,
-    time: Date.now(),
-    dataUrl: ""
-  };
-
-  if(f.type && f.type.startsWith("image/")){
-    const reader = new FileReader();
-
-    reader.onload = ()=>{
-      meta.dataUrl = reader.result;
-      savePersistentPreview(meta);
-    };
-
-    reader.readAsDataURL(f);
-  }else{
-    savePersistentPreview(meta);
-  }
+  setSelectedFile(f);
 });
 
+function handlePasteImage(e){
+  if(isGenerating) return;
+
+  const items = e.clipboardData?.items;
+  if(!items) return;
+
+  for(const item of items){
+    if(item.kind === "file" && item.type.startsWith("image/")){
+      const file = item.getAsFile();
+      if(file){
+        const ext = item.type.split("/")[1] || "png";
+        const namedFile = new File(
+          [file],
+          `pasted-image-${Date.now()}.${ext}`,
+          {type:item.type}
+        );
+
+        setSelectedFile(namedFile);
+        e.preventDefault();
+        return;
+      }
+    }
+  }
+}
+
+document.addEventListener("paste",handlePasteImage);
+input.addEventListener("paste",handlePasteImage);
+
 // =========================
-// ENTER SEND
+// ENTER SEND BLOCKER
 // =========================
 input.addEventListener("keydown",(e)=>{
+  if(isGenerating && e.key === "Enter"){
+    e.preventDefault();
+    e.stopPropagation();
+    return false;
+  }
+
   if(e.key === "Enter" && !e.shiftKey){
     e.preventDefault();
     form.requestSubmit();
@@ -1161,7 +1465,7 @@ function saveRename(){
   if(c) c.title = val;
 
   saveData();
-  renderHistory();
+  renderSidebarList();
   closeRename();
 }
 
@@ -1179,19 +1483,35 @@ function confirmDelete(){
 
   if(deleteTarget.isPrivate){
     privateChats = privateChats.filter(x => x.id !== deleteTarget.id);
-  }else{
-    chats = chats.filter(x => x.id !== deleteTarget.id);
 
-    if(current === deleteTarget.id){
-      current = chats[0]?.id || "";
+    if(currentPrivate && current === deleteTarget.id){
+      current = "";
+      currentPrivate = false;
     }
+
+    saveData();
+    closeDelete();
+
+    if(showingPrivate){
+      renderPrivateHistory();
+    }else{
+      renderHistory();
+    }
+
+    renderChat();
+    return;
+  }
+
+  chats = chats.filter(x => x.id !== deleteTarget.id);
+
+  if(!currentPrivate && current === deleteTarget.id){
+    current = "";
   }
 
   saveData();
-  ensureChat();
+  closeDelete();
   renderHistory();
   renderChat();
-  closeDelete();
 }
 
 // =========================
@@ -1235,6 +1555,8 @@ function prepareUnprivate(id){
 
 function closePin(){
   pinModal.classList.add("hidden");
+  pinInput.value = "";
+  pinMode = "";
 }
 
 function submitPin(){
@@ -1271,10 +1593,14 @@ function doPrivate(){
   privateChats.unshift(chats[i]);
   chats.splice(i,1);
 
-  current = chats[0]?.id || "";
+  if(!currentPrivate && current === pendingPrivateId){
+    current = "";
+  }
+
+  currentPrivate = false;
+  showingPrivate = false;
 
   saveData();
-  ensureChat();
   renderHistory();
   renderChat();
 }
@@ -1287,6 +1613,8 @@ function doUnprivate(){
   privateChats.splice(i,1);
 
   current = chats[0].id;
+  currentPrivate = false;
+  showingPrivate = false;
 
   saveData();
   renderHistory();
@@ -1294,36 +1622,8 @@ function doUnprivate(){
 }
 
 function showPrivate(){
-  historyBox.innerHTML = "";
-
-  privateChats.forEach(c=>{
-    const div = document.createElement("div");
-    div.className = "history-item";
-
-    div.innerHTML = `
-      <div class="history-top">
-        <div class="history-title">🔒 ${esc(c.title)}</div>
-        <button class="icon-btn" type="button">⋮</button>
-      </div>
-    `;
-
-    div.onclick = ()=>{
-      chats.unshift(c);
-      privateChats = privateChats.filter(x => x.id !== c.id);
-      current = c.id;
-
-      saveData();
-      renderHistory();
-      renderChat();
-    };
-
-    div.querySelector(".icon-btn").onclick = (e)=>{
-      e.stopPropagation();
-      openPrivateMenu(c.id,e.target);
-    };
-
-    historyBox.appendChild(div);
-  });
+  showingPrivate = true;
+  renderPrivateHistory();
 }
 
 // =========================
@@ -1356,7 +1656,7 @@ document.addEventListener("click",(e)=>{
 // START
 // =========================
 initModeToggle();
-ensureChat();
+ensureInitialState();
 renderHistory();
 renderChat();
-renderPersistentPreview();
+renderInputPreview();

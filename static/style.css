@@ -1174,3 +1174,104 @@ body{
     padding:7px 11px;
   }
 }
+
+/* =========================
+   USER ATTACHMENT PREVIEW IN CHAT
+========================= */
+
+.attachment-row{
+  margin-bottom:4px;
+}
+
+.user-attachment-card{
+  max-width:min(360px, calc(100vw - 32px));
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px;
+  border-radius:16px;
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.10);
+  box-shadow:0 8px 22px rgba(0,0,0,.18);
+}
+
+.chat-upload-preview{
+  width:120px;
+  max-height:160px;
+  object-fit:cover;
+  border-radius:12px;
+}
+
+.file-icon{
+  width:42px;
+  height:42px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:12px;
+  background:rgba(255,255,255,.10);
+}
+
+.attachment-info{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+
+.attachment-info span{
+  max-width:190px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.attachment-info small{
+  font-size:11px;
+  color:rgba(255,255,255,.55);
+}
+
+/* =========================
+   TYPING DOT LIKE "Halo! Apa k●"
+========================= */
+
+.typing-dot{
+  display:inline-block;
+  margin-left:2px;
+  font-size:.85em;
+  opacity:.9;
+  animation:typingDotPulse .8s infinite ease-in-out;
+}
+
+@keyframes typingDotPulse{
+  0%,100%{
+    opacity:.25;
+    transform:scale(.75);
+  }
+  50%{
+    opacity:1;
+    transform:scale(1);
+  }
+}
+
+/* =========================
+   MATH BLOCK FALLBACK
+========================= */
+
+.math-block{
+  display:block;
+  margin:12px 0;
+  padding:12px 14px;
+  border-radius:12px;
+  background:rgba(255,255,255,.055);
+  border:1px solid rgba(255,255,255,.08);
+  overflow-x:auto;
+  font-family:ui-monospace,monospace;
+}
+
+.math-inline{
+  padding:2px 5px;
+  border-radius:6px;
+  background:rgba(255,255,255,.07);
+  font-family:ui-monospace,monospace;
+}
