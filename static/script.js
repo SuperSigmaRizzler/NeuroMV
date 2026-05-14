@@ -1,7 +1,6 @@
 // =========================
 // NEUROMV ULTRA FINAL SCRIPT.JS
-// STREAMING + STOP + MODE SWITCH + PRIVATE FIX
-// CHAT ATTACHMENT PREVIEW + PASTE IMAGE + SMART TITLE + CLICKABLE LINKS
+// STREAMING SPEED + STOP + COPY ICON + USER COPY/EDIT/REGENERATE
 // =========================
 
 // =========================
@@ -25,6 +24,12 @@ let aiMode = localStorage.getItem("neuromv_mode") || "thinking";
 
 let activeController = null;
 let isGenerating = false;
+let stopRequested = false;
+let editingIndex = null;
+
+// Makin besar = makin lambat.
+// 22 normal, 35 enak buat stop, 50 lambat banget.
+const STREAM_TOKEN_DELAY = Number(localStorage.getItem("neuromv_stream_delay") || "35");
 
 let showingPrivate = false;
 let currentPrivate = false;
@@ -61,6 +66,10 @@ let sendBtnOriginalTitle = sendBtn ? (sendBtn.title || "Send") : "Send";
 // =========================
 // HELPERS
 // =========================
+function sleep(ms){
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function uid(){
   return "c" + Date.now() + Math.floor(Math.random() * 99999);
 }
@@ -290,6 +299,8 @@ function setGeneratingState(on){
 }
 
 function stopGenerating(){
+  stopRequested = true;
+
   if(activeController){
     activeController.abort();
     activeController = null;
@@ -480,7 +491,10 @@ function parseMarkdown(text){
       <div class="code-wrap chatgpt-code-wrap">
         <div class="code-head chatgpt-code-head">
           <span class="code-lang">${esc(language)}</span>
-          <button class="copy-btn" onclick="copyCode('${id}',this)">Copy</button>
+          <button class="copy-btn code-copy-btn" onclick="copyCode('${id}',this)" type="button" aria-label="Copy code">
+            <span class="copy-icon"></span>
+            <span class="copy-label">Copy</span>
+          </button>
         </div>
         <pre class="code-pre chatgpt-code-pre"><code id="${id}" class="language-${esc(language)}">${esc(code.trim())}</code></pre>
       </div>
@@ -540,19 +554,92 @@ function applyHighlight(){
 function copyCode(id,btn){
   const el = document.getElementById(id);
   const code = el ? el.innerText : "";
+  const label = btn.querySelector(".copy-label");
 
   navigator.clipboard.writeText(code).then(()=>{
-    btn.innerText = "Copied";
     btn.classList.add("copied");
 
+    if(label){
+      label.innerText = "Copied";
+    }else{
+      btn.innerText = "Copied";
+    }
+
     setTimeout(()=>{
-      btn.innerText = "Copy";
       btn.classList.remove("copied");
+
+      if(label){
+        label.innerText = "Copy";
+      }else{
+        btn.innerText = "Copy";
+      }
     },1200);
+
   }).catch(()=>{
-    btn.innerText = "Failed";
-    setTimeout(()=>btn.innerText = "Copy",1200);
+    if(label){
+      label.innerText = "Failed";
+      setTimeout(()=>label.innerText = "Copy",1200);
+    }else{
+      btn.innerText = "Failed";
+      setTimeout(()=>btn.innerText = "Copy",1200);
+    }
   });
+}
+
+// =========================
+// MESSAGE ACTIONS
+// =========================
+function copyUserMessage(text,btn){
+  navigator.clipboard.writeText(text || "").then(()=>{
+    const old = btn.innerHTML;
+    btn.innerHTML = "✓";
+    setTimeout(()=>btn.innerHTML = old,1000);
+  });
+}
+
+function addUserActions(row,text,index){
+  if(index === null || index === undefined) return;
+
+  const actions = document.createElement("div");
+  actions.className = "message-actions user-message-actions";
+
+  actions.innerHTML = `
+    <button type="button" title="Copy message" onclick="copyUserMessage(${JSON.stringify(text)}, this)">
+      <span class="mini-copy-icon"></span>
+    </button>
+    <button type="button" title="Edit message" onclick="editUserMessage(${index})">Edit</button>
+    <button type="button" title="Regenerate response" onclick="regenerateFromUser(${index})">Regenerate</button>
+  `;
+
+  row.appendChild(actions);
+}
+
+function editUserMessage(index){
+  if(isGenerating) return;
+
+  const c = currentChat();
+  if(!c || !c.msg[index] || c.msg[index].role !== "user") return;
+
+  editingIndex = index;
+  input.value = c.msg[index].text || "";
+  input.focus();
+
+  input.classList.add("editing-message");
+}
+
+async function regenerateFromUser(index){
+  if(isGenerating) return;
+
+  const c = currentChat();
+  if(!c || !c.msg[index] || c.msg[index].role !== "user") return;
+
+  const msg = c.msg[index].text || "";
+  c.msg = c.msg.slice(0,index + 1);
+
+  saveData();
+  renderChat();
+
+  await sendStreamingMessage(msg,current,false);
 }
 
 // =========================
@@ -880,6 +967,7 @@ function newChat(){
   current = "";
   currentPrivate = false;
   showingPrivate = false;
+  editingIndex = null;
 
   saveData();
   renderHistory();
@@ -911,6 +999,7 @@ function renderHistory(){
       current = c.id;
       currentPrivate = false;
       showingPrivate = false;
+      editingIndex = null;
       saveData();
       renderHistory();
       renderChat();
@@ -949,9 +1038,7 @@ function renderPrivateHistory(){
   if(privateChats.length === 0){
     const empty = document.createElement("div");
     empty.className = "history-item";
-    empty.innerHTML = `
-      <div class="history-title">No private chats</div>
-    `;
+    empty.innerHTML = `<div class="history-title">No private chats</div>`;
     historyBox.appendChild(empty);
     return;
   }
@@ -973,6 +1060,7 @@ function renderPrivateHistory(){
       current = c.id;
       currentPrivate = true;
       showingPrivate = true;
+      editingIndex = null;
       saveData();
       renderPrivateHistory();
       renderChat();
@@ -1080,13 +1168,13 @@ function renderChat(){
     return;
   }
 
-  c.msg.forEach(m=>{
+  c.msg.forEach((m,index)=>{
     if(m.type === "image"){
       bubbleImage(m.url,false);
     }else if(m.type === "attachment"){
       renderChatAttachment(m.meta,false);
     }else{
-      bubble(m.text,m.role,false,false);
+      bubble(m.text,m.role,false,false,index);
     }
   });
 
@@ -1097,7 +1185,7 @@ function renderChat(){
 // =========================
 // BUBBLES
 // =========================
-function bubble(text,role="bot",save=true,typing=false){
+function bubble(text,role="bot",save=true,typing=false,index=null){
   const row = document.createElement("div");
   row.className = role === "user" ? "user-row" : "bot-row";
 
@@ -1142,6 +1230,8 @@ function bubble(text,role="bot",save=true,typing=false){
         type: "text"
       });
 
+      index = c.msg.length - 1;
+
       if(c.msg.length === 1 && role === "user"){
         c.title = makeSmartTitle(cleanText,null);
       }
@@ -1149,6 +1239,10 @@ function bubble(text,role="bot",save=true,typing=false){
       saveData();
       renderSidebarList();
     }
+  }
+
+  if(role === "user"){
+    addUserActions(row,cleanText,index);
   }
 
   scrollBottom();
@@ -1200,7 +1294,6 @@ function createBotStreamingBubble(){
 
 function saveBotMessage(text){
   const clean = cleanBackendStatus(text || "");
-
   if(!clean.trim()) return;
 
   const c = currentChat();
@@ -1220,9 +1313,10 @@ function saveBotMessage(text){
 // =========================
 // STREAMING TEXT SEND
 // =========================
-async function sendStreamingMessage(msg,chatIdForTitle){
+async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true){
   activeController = new AbortController();
   setGeneratingState(true);
+  stopRequested = false;
 
   let load = null;
   let streamBox = null;
@@ -1258,6 +1352,10 @@ async function sendStreamingMessage(msg,chatIdForTitle){
     let buffer = "";
 
     while(true){
+      if(stopRequested){
+        throw new DOMException("Stopped", "AbortError");
+      }
+
       const {done,value} = await reader.read();
       if(done) break;
 
@@ -1267,6 +1365,10 @@ async function sendStreamingMessage(msg,chatIdForTitle){
       buffer = parts.pop();
 
       for(const part of parts){
+        if(stopRequested){
+          throw new DOMException("Stopped", "AbortError");
+        }
+
         const line = part.trim();
         if(!line.startsWith("data:")) continue;
 
@@ -1276,9 +1378,19 @@ async function sendStreamingMessage(msg,chatIdForTitle){
           const data = JSON.parse(jsonText);
 
           if(data.type === "token"){
+            if(stopRequested){
+              throw new DOMException("Stopped", "AbortError");
+            }
+
             full += data.text || "";
             streamBox.innerHTML = parseMarkdown(full) + `<span class="typing-dot">●</span>`;
             scrollBottom();
+
+            await sleep(STREAM_TOKEN_DELAY);
+
+            if(stopRequested){
+              throw new DOMException("Stopped", "AbortError");
+            }
           }
 
           if(data.type === "image"){
@@ -1299,7 +1411,9 @@ async function sendStreamingMessage(msg,chatIdForTitle){
               applyHighlight();
             }
           }
-        }catch{}
+        }catch(err){
+          if(err.name === "AbortError") throw err;
+        }
       }
     }
 
@@ -1307,7 +1421,10 @@ async function sendStreamingMessage(msg,chatIdForTitle){
       streamBox.innerHTML = parseMarkdown(full);
       applyHighlight();
       saveBotMessage(full);
-      updateChatTitleSmart(chatIdForTitle,msg,full,null);
+
+      if(shouldUpdateTitle){
+        updateChatTitleSmart(chatIdForTitle,msg,full,null);
+      }
     }
 
   }catch(err){
@@ -1315,12 +1432,12 @@ async function sendStreamingMessage(msg,chatIdForTitle){
 
     if(err.name === "AbortError"){
       if(streamBox){
-        full += "\n\n_Generation stopped._";
         streamBox.innerHTML = parseMarkdown(full);
         applyHighlight();
-        saveBotMessage(full);
-      }else{
-        bubble("_Generation stopped._","bot",true,false);
+
+        if(full.trim()){
+          saveBotMessage(full);
+        }
       }
     }else{
       bubble("Connection error.","bot",true,false);
@@ -1328,6 +1445,7 @@ async function sendStreamingMessage(msg,chatIdForTitle){
 
   }finally{
     activeController = null;
+    stopRequested = false;
     setGeneratingState(false);
     scrollBottom();
   }
@@ -1339,6 +1457,7 @@ async function sendStreamingMessage(msg,chatIdForTitle){
 async function sendNormalWithFile(msg,fileToSend,chatIdForTitle){
   activeController = new AbortController();
   setGeneratingState(true);
+  stopRequested = false;
 
   const label = labelFromAction("chat",msg,fileToSend);
   const load = createStatusBubble(label);
@@ -1376,13 +1495,14 @@ async function sendNormalWithFile(msg,fileToSend,chatIdForTitle){
     load.remove();
 
     if(err.name === "AbortError"){
-      bubble("_Generation stopped._","bot",true,false);
+      // stop quietly like ChatGPT
     }else{
       bubble("Connection error.","bot",true,false);
     }
 
   }finally{
     activeController = null;
+    stopRequested = false;
     setGeneratingState(false);
     scrollBottom();
   }
@@ -1406,6 +1526,36 @@ form.addEventListener("submit", async(e)=>{
     : null;
 
   if(!msg && !fileToSend) return;
+
+  // EDIT MODE
+  if(editingIndex !== null){
+    const c = currentChat();
+
+    if(!c || !c.msg[editingIndex] || c.msg[editingIndex].role !== "user"){
+      editingIndex = null;
+      input.classList.remove("editing-message");
+      return;
+    }
+
+    c.msg[editingIndex].text = msg;
+    c.msg = c.msg.slice(0, editingIndex + 1);
+
+    if(editingIndex === 0){
+      c.title = makeSmartTitle(msg,null);
+      c.autoTitleDone = false;
+    }
+
+    saveData();
+    renderChat();
+
+    const chatIdForTitle = current;
+    editingIndex = null;
+    input.classList.remove("editing-message");
+    input.value = "";
+
+    await sendStreamingMessage(msg,chatIdForTitle,editingIndex === 0);
+    return;
+  }
 
   if(!currentChat()){
     createChatFromFirstMessage(msg,fileToSend);
@@ -1431,7 +1581,7 @@ form.addEventListener("submit", async(e)=>{
   if(fileToSend){
     await sendNormalWithFile(msg,fileToSend,chatIdForTitle);
   }else{
-    await sendStreamingMessage(msg,chatIdForTitle);
+    await sendStreamingMessage(msg,chatIdForTitle,true);
   }
 });
 
@@ -1480,6 +1630,13 @@ input.addEventListener("keydown",(e)=>{
     e.preventDefault();
     e.stopPropagation();
     return false;
+  }
+
+  if(e.key === "Escape" && editingIndex !== null){
+    editingIndex = null;
+    input.value = "";
+    input.classList.remove("editing-message");
+    return;
   }
 
   if(e.key === "Enter" && !e.shiftKey){

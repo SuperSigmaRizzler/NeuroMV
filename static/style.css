@@ -1275,3 +1275,231 @@ body{
   background:rgba(255,255,255,.07);
   font-family:ui-monospace,monospace;
 }
+
+/* =========================
+   CHATGPT STYLE COPY BUTTON
+========================= */
+
+.code-copy-btn{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  height:28px;
+  padding:5px 9px;
+  border:none;
+  outline:none;
+  cursor:pointer;
+  border-radius:8px;
+  background:transparent;
+  color:#c9d1d9;
+  font-size:12px;
+  font-weight:500;
+  transition:.18s ease;
+}
+
+.code-copy-btn:hover{
+  background:rgba(255,255,255,.08);
+  color:#ffffff;
+}
+
+.copy-icon,
+.mini-copy-icon{
+  position:relative;
+  width:16px;
+  height:16px;
+  display:inline-block;
+  color:currentColor;
+}
+
+.copy-icon::before,
+.copy-icon::after,
+.mini-copy-icon::before,
+.mini-copy-icon::after{
+  content:"";
+  position:absolute;
+  width:9px;
+  height:11px;
+  border:1.6px solid currentColor;
+  border-radius:3px;
+  background:#161b22;
+}
+
+.copy-icon::before,
+.mini-copy-icon::before{
+  left:2px;
+  top:4px;
+  opacity:.55;
+}
+
+.copy-icon::after,
+.mini-copy-icon::after{
+  left:5px;
+  top:1px;
+}
+
+.code-copy-btn.copied{
+  color:#7cffb0;
+  background:rgba(61,220,132,.10);
+}
+
+.code-copy-btn.copied .copy-icon::before{
+  content:"✓";
+  left:1px;
+  top:-1px;
+  width:16px;
+  height:16px;
+  border:none;
+  background:transparent;
+  font-size:15px;
+  line-height:16px;
+  font-weight:800;
+  opacity:1;
+}
+
+.code-copy-btn.copied .copy-icon::after{
+  display:none;
+}
+
+/* =========================
+   USER MESSAGE ACTIONS
+========================= */
+
+.message-actions{
+  display:flex;
+  gap:6px;
+  margin-top:5px;
+  opacity:0;
+  transition:.18s ease;
+}
+
+.user-row:hover .message-actions,
+.message-actions:hover{
+  opacity:1;
+}
+
+.message-actions button{
+  height:28px;
+  padding:5px 8px;
+  border:none;
+  border-radius:8px;
+  background:rgba(255,255,255,.07);
+  color:rgba(255,255,255,.75);
+  cursor:pointer;
+  font-size:12px;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+}
+
+.message-actions button:hover{
+  background:rgba(255,255,255,.14);
+  color:#fff;
+}
+
+.editing-message{
+  outline:2px solid rgba(91,124,255,.6);
+}
+
+/* =========================
+   ATTACHMENT PREVIEW IN CHAT
+========================= */
+
+.attachment-row{
+  margin-bottom:4px;
+}
+
+.user-attachment-card{
+  max-width:min(360px, calc(100vw - 32px));
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px;
+  border-radius:16px;
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.10);
+  box-shadow:0 8px 22px rgba(0,0,0,.18);
+}
+
+.chat-upload-preview{
+  width:120px;
+  max-height:160px;
+  object-fit:cover;
+  border-radius:12px;
+}
+
+.file-icon{
+  width:42px;
+  height:42px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:12px;
+  background:rgba(255,255,255,.10);
+}
+
+.attachment-info{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+
+.attachment-info span{
+  max-width:190px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.attachment-info small{
+  font-size:11px;
+  color:rgba(255,255,255,.55);
+}
+
+/* =========================
+   TYPING DOT
+========================= */
+
+.typing-dot{
+  display:inline-block;
+  margin-left:2px;
+  font-size:.85em;
+  opacity:.9;
+  animation:typingDotPulse .8s infinite ease-in-out;
+}
+
+@keyframes typingDotPulse{
+  0%,100%{
+    opacity:.25;
+    transform:scale(.75);
+  }
+  50%{
+    opacity:1;
+    transform:scale(1);
+  }
+}
+
+/* =========================
+   MATH FALLBACK
+========================= */
+
+.math-block{
+  display:block;
+  margin:12px 0;
+  padding:0;
+  background:transparent;
+  border:none;
+  overflow-x:auto;
+  font-family:inherit;
+}
+
+.math-inline{
+  padding:0;
+  background:transparent;
+  font-family:inherit;
+}
+
+.private-back-btn{
+  width:100%;
+  margin-bottom:8px;
+}

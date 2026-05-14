@@ -13,6 +13,29 @@
 <link rel="stylesheet"
 href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 
+<!-- =========================
+     MATHJAX FOR LATEX MATH
+========================= -->
+<script>
+window.MathJax = {
+  tex: {
+    inlineMath: [['\\(','\\)']],
+    displayMath: [['\\[','\\]'], ['$$','$$']],
+    processEscapes: true
+  },
+  svg: {
+    fontCache: 'global'
+  },
+  startup: {
+    typeset: false
+  }
+};
+</script>
+
+<script async
+src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js">
+</script>
+
 </head>
 <body>
 
@@ -108,11 +131,11 @@ href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-d
     <div id="history" class="history-list"></div>
 
     <!-- footer -->
-  <div class="sidebar-footer">
-  <button class="menu-btn" onclick="openPrivate()">
-    🔒 Private
-  </button>
-</div>
+    <div class="sidebar-footer">
+      <button class="menu-btn" onclick="openPrivate()">
+        🔒 Private
+      </button>
+    </div>
 
   </aside>
 
@@ -139,7 +162,6 @@ href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-d
       <button
         class="dots-btn"
         onclick="toggleMoreMenu()">⋮</button>
-
     </div>
 
     <!-- chat -->
