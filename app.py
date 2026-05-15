@@ -11,6 +11,7 @@ import csv
 import zipfile
 import base64
 import tempfile
+import html as html_module
 from urllib.parse import quote, urlparse, parse_qs, unquote
 
 # ==================================================
@@ -26,7 +27,7 @@ try:
 except Exception:
     PyPDF2 = None
 
-try:
+ry:
     import docx
 except Exception:
     docx = None
@@ -40,7 +41,7 @@ except Exception:
 # APP
 # ==================================================
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "neuromv-gemini-mistral-final-secret")
+app.secret_key = os.getenv("SECRET_KEY", "neuromv-gemini-mistral-html-clean-secret")
 
 # ==================================================
 # CONFIG
@@ -134,6 +135,7 @@ NeuroMV current capabilities:
 - Premium status UI: Searching, Thinking, Analyzing Image, Reading URL, Creating Image
 - Premium code block UI from frontend
 - File/image preview UI from frontend
+- Copy, edit, and regenerate user messages from frontend
 """
 
 # ==================================================
@@ -168,7 +170,12 @@ Premium response quality:
 - Lead with the useful answer, not unnecessary disclaimers.
 - Be concise when the task is simple.
 - Be thorough when the task needs depth.
-- Use clean formatting with short paragraphs, clear headings, steps, and code blocks when useful.
+- Use clean Markdown formatting with short paragraphs, clear headings, steps, and code blocks when useful.
+- Use Markdown formatting only.
+- Never use raw HTML tags such as <h1>, <span>, <div>, <p>, or inline style attributes in normal answers.
+- Do not use HTML to make text bigger.
+- If emphasis is needed, use Markdown headings like #, ##, ### or bold text.
+- Only output HTML if the user explicitly asks for HTML code.
 - Avoid sounding robotic.
 - Avoid repeating the user's question unless needed.
 - Avoid ending with too many follow-up options.
@@ -247,6 +254,8 @@ Formatting rules:
 - Do not force coding-patch language.
 - Use "TAMBAHKAN INI DI BAGIAN..." only when the user clearly asks to edit code/files.
 - Use "FULL SCRIPT" only when the user asks for full script/code.
+- Never use raw HTML tags in normal answers.
+- Use Markdown, not HTML, for formatting.
 - For normal topics, games, school explanations, math, casual chat, or strategy discussions, answer naturally.
 - For tic tac toe or other games, explain strategy/rules/gameplay unless the user asks for code.
 
@@ -455,6 +464,32 @@ def clean_internal_leaks(text):
     text = re.sub(r"(?im)^.*Relevant cross-chat memory\s*:.*$", "", text)
     text = re.sub(r"(?im)^.*User interests\s*:.*$", "", text)
     text = re.sub(r"(?im)^.*Dynamic style instruction\s*:.*$", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    return text
+
+
+def clean_html_style_leaks(text):
+    text = str(text or "")
+
+    def heading_replacer(match):
+        inner = match.group(2)
+        inner = re.sub(r"<[^>]+>", "", inner)
+        inner = html_module.unescape(inner).strip()
+        return "\n## " + inner + "\n" if inner else ""
+
+    text = re.sub(
+        r"(?is)<\s*h([1-6])[^>]*>(.*?)<\s*/\s*h\1\s*>",
+        heading_replacer,
+        text
+    )
+
+    text = re.sub(r"(?is)<\s*span[^>]*>(.*?)<\s*/\s*span\s*>", r"\1", text)
+    text = re.sub(r"(?is)<\s*br\s*/?\s*>", "\n", text)
+    text = re.sub(r"(?is)<\s*/\s*p\s*>", "\n\n", text)
+    text = re.sub(r"(?is)<[^>]+>", "", text)
+
+    text = html_module.unescape(text)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
 
     return text
@@ -727,6 +762,7 @@ Dynamic style:
 - Do not randomly use coding patch phrases.
 - Do not say "Tambahkan ini di bagian..." unless the user is editing a file or asking for code changes.
 - Do not use "Full script" unless the user asks for a script.
+- Do not use raw HTML for styling.
 - For games like tic tac toe, answer normally: explain strategy, rules, ideas, or gameplay.
 - Match the topic naturally.
 """
@@ -1764,6 +1800,13 @@ def local_fallback(msg):
     return "Aku siap bantu. Coba tulis sedikit lebih detail supaya aku bisa jawab lebih tepat."
 
 
+def clean_model_output(out, msg):
+    out = clean_internal_leaks(out)
+    out = clean_wrong_patch_style(out, msg)
+    out = clean_html_style_leaks(out)
+    return out
+
+
 def ask_ai(cid, msg, mode="thinking"):
     mode = normalize_mode(mode)
     messages = build_messages(cid, msg, mode)
@@ -1779,9 +1822,7 @@ def ask_ai(cid, msg, mode="thinking"):
             out = fn()
 
             if out:
-                out = clean_internal_leaks(out)
-                out = clean_wrong_patch_style(out, msg)
-                return out
+                return clean_model_output(out, msg)
 
         except Exception:
             pass
@@ -2667,7 +2708,7 @@ Answer as NeuroMV:
     remember_action(cid, "memory_recall", msg)
 
     reply = ask_ai(cid, ask, mode)
-    reply = clean_internal_leaks(reply)
+    reply = clean_model_output(reply, msg)
 
     push(cid, "user", msg)
     push(cid, "bot", reply)
@@ -2732,7 +2773,7 @@ Rules:
 
     reply = ask_ai(cid, ask, mode)
     reply = stale_guard(msg, reply, results)
-    reply = clean_internal_leaks(reply)
+    reply = clean_model_output(reply, msg)
     reply += source_block(results)
 
     push(cid, "user", msg)
@@ -2858,7 +2899,6 @@ def chat():
     msg = request.form.get("message", "").strip()
     mode = normalize_mode(request.form.get("mode", "thinking"))
 
-    # FILE / IMAGE UPLOAD
     if "file" in request.files:
         f = request.files["file"]
 
@@ -2872,7 +2912,6 @@ def chat():
             data = f.read()
             low = f.filename.lower()
 
-            # IMAGE ANALYSIS
             if low.endswith((".png", ".jpg", ".jpeg", ".webp")):
                 reply = analyze_image_full(cid, msg, data, f.filename, mode)
 
@@ -2881,6 +2920,8 @@ def chat():
                         "Aku menerima gambarnya, tapi Vision/OCR AI belum berhasil membaca gambar ini. "
                         "Pastikan GEMINI_API_KEY, MISTRAL_API_KEY, CLOUDFLARE_API_TOKEN, atau GROQ_API_KEY aktif."
                     )
+
+                reply = clean_model_output(reply, msg)
 
                 push(cid, "user", "[image] " + f.filename + (" " + msg if msg else ""))
                 push(cid, "bot", reply)
@@ -2891,7 +2932,6 @@ def chat():
                     "reply": reply
                 })
 
-            # NORMAL FILE
             content = smart_read_file(f.filename, data)
             remember_action(cid, "read_file", f.filename)
 
@@ -2906,6 +2946,7 @@ User request:
 """
 
             reply = ask_ai(cid, ask, mode)
+            reply = clean_model_output(reply, msg)
 
             push(cid, "user", "[file] " + f.filename)
             push(cid, "bot", reply)
@@ -2917,14 +2958,12 @@ User request:
                 "reply": reply
             })
 
-    # EMPTY
     if not msg:
         return jsonify({
             "type": "text",
             "reply": "Tulis pesan dulu ya."
         })
 
-    # BLOCKED
     if blocked(msg):
         return jsonify({
             "type": "text",
@@ -2958,6 +2997,7 @@ Explain, summarize, or answer based on the webpage. Use the user's language.
 """
 
             reply = ask_ai(cid, ask, mode)
+            reply = clean_model_output(reply, msg)
 
             push(cid, "user", msg)
             push(cid, "bot", reply)
@@ -2997,6 +3037,7 @@ Explain, summarize, or answer based on the webpage. Use the user's language.
     remember_action(cid, "chat", msg)
 
     reply = ask_ai(cid, msg, mode)
+    reply = clean_model_output(reply, msg)
 
     push(cid, "user", msg)
     push(cid, "bot", reply)
@@ -3160,6 +3201,7 @@ Answer in the user's language.
 
             if stream_pack is None:
                 fallback = ask_ai(cid, msg, mode)
+                fallback = clean_model_output(fallback, msg)
 
                 yield "data: " + json.dumps({
                     "type": "token",
@@ -3197,8 +3239,7 @@ Answer in the user's language.
                     pass
 
         finally:
-            full_reply = clean_internal_leaks(full_reply)
-            full_reply = clean_wrong_patch_style(full_reply, msg)
+            full_reply = clean_model_output(full_reply, msg)
 
             if full_reply.strip():
                 push(cid, "user", msg)
