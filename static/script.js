@@ -1,6 +1,7 @@
 // =========================
 // NEUROMV ULTRA FINAL SCRIPT.JS
-// STREAMING SPEED + STOP + COPY ICON + USER COPY/EDIT/REGENERATE
+// DEVICE/IP LIMIT UI + CHATGPT-STYLE LIMIT POPUP
+// STREAMING + PRIVATE + PREVIEW + EDIT + REGEN
 // =========================
 
 // =========================
@@ -10,6 +11,52 @@ let chats = JSON.parse(localStorage.getItem("neuromv_chats") || "[]");
 let privateChats = JSON.parse(localStorage.getItem("neuromv_private") || "[]");
 let current = localStorage.getItem("neuromv_current") || "";
 
+// =========================
+// DEVICE ID + META
+// =========================
+function getDeviceId(){
+  let id = localStorage.getItem("neuromv_device_id");
+
+  if(!id){
+    if(window.crypto && crypto.randomUUID){
+      id = "dev_" + crypto.randomUUID();
+    }else{
+      id = "dev_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    }
+
+    localStorage.setItem("neuromv_device_id", id);
+  }
+
+  return id;
+}
+
+const DEVICE_ID = getDeviceId();
+
+function getDeviceMeta(){
+  let screenText = "";
+
+  try{
+    screenText = `${screen.width}x${screen.height}x${screen.colorDepth}`;
+  }catch{}
+
+  return {
+    tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    lang: navigator.language || "",
+    platform: navigator.platform || "",
+    screen: screenText,
+    memory: navigator.deviceMemory || "",
+    touch: String(navigator.maxTouchPoints || 0)
+  };
+}
+
+function appendIdentity(fd){
+  fd.append("user_id", DEVICE_ID);
+  fd.append("device_meta", JSON.stringify(getDeviceMeta()));
+}
+
+// =========================
+// STATE
+// =========================
 let selectedFile = null;
 let selectedFileMeta = null;
 
@@ -24,15 +71,15 @@ let aiMode = localStorage.getItem("neuromv_mode") || "thinking";
 
 let activeController = null;
 let isGenerating = false;
-let stopRequested = false;
+const generators = {};
+
 let editingIndex = null;
-
-// Makin besar = makin lambat.
-// 22 normal, 35 enak buat stop, 50 lambat banget.
-const STREAM_TOKEN_DELAY = Number(localStorage.getItem("neuromv_stream_delay") || "35");
-
 let showingPrivate = false;
 let currentPrivate = false;
+
+const STREAM_TOKEN_DELAY = Number(localStorage.getItem("neuromv_stream_delay") || "35");
+
+let limitState = JSON.parse(localStorage.getItem("neuromv_limit_state") || "{}");
 
 // =========================
 // ELEMENTS
@@ -60,11 +107,13 @@ const sendBtn =
   form?.querySelector("button[type='submit']") ||
   form?.querySelector("button");
 
+const uploadBtn = document.querySelector(".upload-btn");
+
 let sendBtnOriginalHTML = sendBtn ? sendBtn.innerHTML : "Send";
 let sendBtnOriginalTitle = sendBtn ? (sendBtn.title || "Send") : "Send";
 
 // =========================
-// HELPERS
+// BASIC HELPERS
 // =========================
 function sleep(ms){
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -104,12 +153,20 @@ function saveData(){
   localStorage.setItem("neuromv_current", current || "");
 }
 
-function currentChat(){
-  if(currentPrivate){
-    return privateChats.find(x => x.id === current);
-  }
+function getChatById(id,isPrivate=false){
+  return isPrivate ? privateChats.find(x => x.id === id) : chats.find(x => x.id === id);
+}
 
-  return chats.find(x => x.id === current);
+function getAnyChatById(id){
+  return chats.find(x => x.id === id) || privateChats.find(x => x.id === id);
+}
+
+function isPrivateChatId(id){
+  return privateChats.some(x => x.id === id);
+}
+
+function currentChat(){
+  return currentPrivate ? privateChats.find(x => x.id === current) : chats.find(x => x.id === current);
 }
 
 function renderSidebarList(){
@@ -155,6 +212,173 @@ function removeEmojis(text){
   return String(text || "").replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu,"");
 }
 
+// =========================
+// LIMIT UI
+// =========================
+function saveLimitState(){
+  localStorage.setItem("neuromv_limit_state", JSON.stringify(limitState || {}));
+}
+
+function updateLimitStateFromPayload(payload){
+  if(!payload) return;
+
+  if(payload.remaining){
+    limitState = payload.remaining;
+    saveLimitState();
+    applyLimitUI();
+  }
+}
+
+function getRemain(kind){
+  if(!limitState || (!limitState[kind] && limitState[kind] !== 0)){
+    return null;
+  }
+
+  return Number(limitState[kind]);
+}
+
+function isChatLimitReached(){
+  const r = getRemain("chat");
+  return r !== null && r <= 0;
+}
+
+function isFileLimitReached(){
+  const r = getRemain("file");
+  return r !== null && r <= 0;
+}
+
+function isImageLimitReached(){
+  const r = getRemain("image");
+  return r !== null && r <= 0;
+}
+
+function styleDisabled(el,on){
+  if(!el) return;
+
+  if(on){
+    el.classList.add("limit-disabled");
+    el.style.opacity = ".38";
+    el.style.pointerEvents = "none";
+    el.style.filter = "grayscale(1)";
+    el.style.cursor = "not-allowed";
+  }else{
+    el.classList.remove("limit-disabled");
+    el.style.opacity = "";
+    el.style.pointerEvents = "";
+    el.style.filter = "";
+    el.style.cursor = "";
+  }
+}
+
+function applyLimitUI(){
+  const chatBlocked = isChatLimitReached();
+  const fileBlocked = isFileLimitReached();
+
+  if(uploadBtn){
+    styleDisabled(uploadBtn,fileBlocked);
+    uploadBtn.title = fileBlocked ? "Upload limit reached" : "";
+  }
+
+  if(fileInput){
+    fileInput.disabled = fileBlocked;
+  }
+
+  if(sendBtn && !chatIsGenerating(current)){
+    if(chatBlocked){
+      sendBtn.classList.add("limit-disabled");
+      sendBtn.disabled = true;
+      sendBtn.innerHTML = "➤";
+      sendBtn.title = "Daily chat limit reached";
+      sendBtn.style.opacity = ".38";
+      sendBtn.style.filter = "grayscale(1)";
+      sendBtn.style.cursor = "not-allowed";
+    }else{
+      sendBtn.disabled = false;
+      sendBtn.classList.remove("limit-disabled");
+      sendBtn.innerHTML = sendBtnOriginalHTML;
+      sendBtn.title = sendBtnOriginalTitle;
+      sendBtn.style.opacity = "";
+      sendBtn.style.filter = "";
+      sendBtn.style.cursor = "";
+    }
+  }
+}
+
+async function fetchLimits(){
+  try{
+    const fd = new FormData();
+    appendIdentity(fd);
+
+    const res = await fetch("/limits",{
+      method:"POST",
+      body:fd
+    });
+
+    if(!res.ok) return;
+
+    const data = await res.json();
+    updateLimitStateFromPayload(data);
+  }catch{}
+}
+
+function showLimitBubble(kind="chat"){
+  let title = "You've reached your daily limit";
+  let desc = "Please try again tomorrow.";
+
+  if(kind === "chat"){
+    title = "You've reached your daily chat limit";
+    desc = "You can still type, but sending messages is disabled until the limit resets tomorrow.";
+  }
+
+  if(kind === "file"){
+    title = "You've reached your daily upload limit";
+    desc = "The upload button is disabled until the limit resets tomorrow.";
+  }
+
+  if(kind === "image"){
+    title = "You've reached your daily image generation limit";
+    desc = "You can generate more images after the daily reset.";
+  }
+
+  showLimitPopup(title, desc);
+}
+
+function showLimitPopup(title, desc){
+  document.querySelectorAll(".limit-popup").forEach(x => x.remove());
+
+  const pop = document.createElement("div");
+  pop.className = "limit-popup";
+
+  pop.innerHTML = `
+    <div class="limit-popup-card">
+      <button class="limit-popup-x" type="button" aria-label="Close">×</button>
+      <div class="limit-popup-icon">!</div>
+      <div class="limit-popup-content">
+        <strong>${esc(title)}</strong>
+        <p>${esc(desc)}</p>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(pop);
+
+  pop.querySelector(".limit-popup-x").onclick = ()=>{
+    pop.remove();
+  };
+
+  setTimeout(()=>{
+    pop.classList.add("show");
+  },10);
+
+  setTimeout(()=>{
+    pop.classList.remove("show");
+    setTimeout(()=>pop.remove(),250);
+  },4500);
+}
+
+// =========================
+// SMART TITLE
+// =========================
 function titleCase(text){
   return String(text || "")
     .split(" ")
@@ -184,6 +408,7 @@ function makeSmartTitle(text,file){
   if(!t) return "New Chat";
 
   const apaItu = low.match(/^apa itu\s+(.+?)[?.!]*$/i);
+
   if(apaItu && apaItu[1]){
     const topic = titleCase(apaItu[1].replace(/[?.!]/g,"").trim()).slice(0,28);
     return "Penjelasan " + topic;
@@ -214,7 +439,8 @@ function makeSmartTitle(text,file){
 }
 
 async function updateChatTitleSmart(chatId,msg,reply,file){
-  const c = chats.find(x => x.id === chatId);
+  const c = getAnyChatById(chatId);
+
   if(!c) return;
 
   if(c.autoTitleDone){
@@ -233,13 +459,14 @@ async function updateChatTitleSmart(chatId,msg,reply,file){
   c.autoTitleDone = true;
 
   saveData();
-  renderHistory();
+  renderSidebarList();
 
   try{
     const fd = new FormData();
     fd.append("message", msg || "");
     fd.append("reply", reply || "");
     fd.append("file", file?.name || "");
+    appendIdentity(fd);
 
     const res = await fetch("/title",{
       method:"POST",
@@ -251,11 +478,11 @@ async function updateChatTitleSmart(chatId,msg,reply,file){
     const data = await res.json();
     const title = String(data.title || "").trim();
 
-    if(title && chats.some(x => x.id === chatId)){
+    if(title && getAnyChatById(chatId)){
       c.title = title.slice(0,42);
       c.autoTitleDone = true;
       saveData();
-      renderHistory();
+      renderSidebarList();
     }
   }catch{}
 }
@@ -282,12 +509,21 @@ function createChatFromFirstMessage(msg,file){
 // =========================
 // GENERATING / STOP BUTTON
 // =========================
+function chatIsGenerating(chatId=current){
+  return !!generators[chatId];
+}
+
 function setGeneratingState(on){
-  isGenerating = on;
+  isGenerating = Object.keys(generators).length > 0;
 
   if(!sendBtn) return;
 
   if(on){
+    sendBtn.disabled = false;
+    sendBtn.classList.remove("limit-disabled");
+    sendBtn.style.opacity = "";
+    sendBtn.style.filter = "";
+    sendBtn.style.cursor = "";
     sendBtn.classList.add("stop-mode");
     sendBtn.innerHTML = "■";
     sendBtn.title = "Stop generating";
@@ -295,22 +531,35 @@ function setGeneratingState(on){
     sendBtn.classList.remove("stop-mode");
     sendBtn.innerHTML = sendBtnOriginalHTML;
     sendBtn.title = sendBtnOriginalTitle;
+    applyLimitUI();
   }
+}
+
+function refreshSendButton(){
+  setGeneratingState(chatIsGenerating(current));
 }
 
 function stopGenerating(){
-  stopRequested = true;
+  const gen = generators[current];
 
-  if(activeController){
-    activeController.abort();
-    activeController = null;
+  if(!gen){
+    refreshSendButton();
+    return;
   }
 
-  setGeneratingState(false);
+  gen.stopped = true;
+
+  try{
+    gen.controller.abort();
+  }catch{}
+
+  delete generators[current];
+
+  refreshSendButton();
 }
 
 // =========================
-// STATUS CLEANER
+// STATUS / HTML CLEANER
 // =========================
 function cleanBackendStatus(text){
   return String(text || "")
@@ -323,9 +572,29 @@ function cleanBackendStatus(text){
     .trim();
 }
 
+function cleanHtmlStyleLeaks(text){
+  text = String(text || "");
+
+  text = text.replace(/<\s*h[1-6][^>]*>([\s\S]*?)<\s*\/\s*h[1-6]\s*>/gi, (_,inner)=>{
+    inner = inner.replace(/<[^>]+>/g,"").trim();
+    return inner ? "\n## " + inner + "\n" : "";
+  });
+
+  text = text.replace(/<\s*span[^>]*>([\s\S]*?)<\s*\/\s*span\s*>/gi, "$1");
+  text = text.replace(/<\s*br\s*\/?\s*>/gi, "\n");
+  text = text.replace(/<\s*\/\s*p\s*>/gi, "\n\n");
+  text = text.replace(/<\/?(div|p|section|article|main|header|footer|h[1-6]|span)[^>]*>/gi, "");
+
+  return text.trim();
+}
+
 // =========================
-// CLICKABLE LINK ENGINE
+// LINKS + MARKDOWN
 // =========================
+function isValidUrlForLink(url){
+  return isValidHttpUrl(url);
+}
+
 function linkifyHtml(html){
   const root = document.createElement("div");
   root.innerHTML = html;
@@ -357,6 +626,7 @@ function linkifyHtml(html){
   );
 
   const nodes = [];
+
   while(walker.nextNode()){
     nodes.push(walker.currentNode);
   }
@@ -382,7 +652,7 @@ function linkifyHtml(html){
 
       const realUrl = url.replace(/&amp;/g,"&");
 
-      if(isValidHttpUrl(realUrl)){
+      if(isValidUrlForLink(realUrl)){
         const a = document.createElement("a");
         a.href = realUrl;
         a.target = "_blank";
@@ -415,13 +685,16 @@ function formatUserText(text){
   return linkifyHtml(html);
 }
 
-// =========================
-// MATH / MARKDOWN
-// =========================
 function protectMathBlocks(text){
   const math = [];
 
   text = String(text || "").replace(/\$\$([\s\S]*?)\$\$/g,(_,body)=>{
+    const id = math.length;
+    math.push(`<div class="math-block">\\[${esc(body.trim())}\\]</div>`);
+    return `@@MATH_BLOCK_${id}@@`;
+  });
+
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g,(_,body)=>{
     const id = math.length;
     math.push(`<div class="math-block">\\[${esc(body.trim())}\\]</div>`);
     return `@@MATH_BLOCK_${id}@@`;
@@ -477,6 +750,7 @@ function restoreSafeBackendHtml(html){
 
 function parseMarkdown(text){
   text = cleanBackendStatus(text);
+  text = cleanHtmlStyleLeaks(text);
 
   const protectedMath = protectMathBlocks(text);
   text = protectedMath.text;
@@ -509,11 +783,9 @@ function parseMarkdown(text){
   html = html.replace(/^### (.*)$/gm,"<h3>$1</h3>");
   html = html.replace(/^## (.*)$/gm,"<h2>$1</h2>");
   html = html.replace(/^# (.*)$/gm,"<h1>$1</h1>");
-
   html = html.replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>");
   html = html.replace(/\*(.*?)\*/g,"<em>$1</em>");
   html = html.replace(/`([^`]+)`/g,"<code class='inline-code'>$1</code>");
-
   html = html.replace(/^\- (.*)$/gm,"• $1");
   html = html.replace(/\n/g,"<br>");
 
@@ -574,20 +846,16 @@ function copyCode(id,btn){
         btn.innerText = "Copy";
       }
     },1200);
-
   }).catch(()=>{
     if(label){
       label.innerText = "Failed";
       setTimeout(()=>label.innerText = "Copy",1200);
-    }else{
-      btn.innerText = "Failed";
-      setTimeout(()=>btn.innerText = "Copy",1200);
     }
   });
 }
 
 // =========================
-// MESSAGE ACTIONS
+// USER MESSAGE ACTIONS
 // =========================
 function copyUserMessage(text,btn){
   navigator.clipboard.writeText(text || "").then(()=>{
@@ -615,73 +883,73 @@ function addUserActions(row,text,index){
 }
 
 function editUserMessage(index){
-  if(isGenerating) return;
+  if(chatIsGenerating(current)) return;
 
   const c = currentChat();
+
   if(!c || !c.msg[index] || c.msg[index].role !== "user") return;
 
   editingIndex = index;
   input.value = c.msg[index].text || "";
   input.focus();
-
   input.classList.add("editing-message");
 }
 
 async function regenerateFromUser(index){
-  if(isGenerating) return;
+  if(chatIsGenerating(current)) return;
+
+  if(isChatLimitReached()){
+    showLimitBubble("chat");
+    return;
+  }
 
   const c = currentChat();
+
   if(!c || !c.msg[index] || c.msg[index].role !== "user") return;
 
   const msg = c.msg[index].text || "";
+  const chatIdForTitle = current;
+  const targetPrivate = currentPrivate;
+
   c.msg = c.msg.slice(0,index + 1);
 
   saveData();
   renderChat();
 
-  await sendStreamingMessage(msg,current,false);
+  await sendStreamingMessage(msg,chatIdForTitle,false,targetPrivate);
 }
 
 // =========================
 // MODE TOGGLE
 // =========================
 function initModeToggle(){
-  if(document.getElementById("modeToggle")) return;
+  let wrap = document.getElementById("modeToggle");
 
-  const wrap = document.createElement("div");
-  wrap.id = "modeToggle";
-  wrap.className = "mode-toggle mode-toggle-top";
+  if(!wrap){
+    wrap = document.createElement("div");
+    wrap.id = "modeToggle";
+    wrap.className = "mode-toggle mode-toggle-top";
+    wrap.style.width = "100%";
+    wrap.style.justifyContent = "flex-end";
+    wrap.style.boxSizing = "border-box";
 
-  wrap.style.width = "100%";
-  wrap.style.justifyContent = "flex-end";
-  wrap.style.boxSizing = "border-box";
+    wrap.innerHTML = `
+      <button type="button" data-mode="instant">⚡ Instant</button>
+      <button type="button" data-mode="thinking">🧠 Deep Thinking</button>
+    `;
 
-  wrap.innerHTML = `
-    <button type="button" data-mode="instant">⚡ Instant</button>
-    <button type="button" data-mode="thinking">🧠 Deep Thinking</button>
-  `;
+    const target =
+      document.querySelector(".chat-head") ||
+      document.querySelector(".topbar") ||
+      document.querySelector(".main") ||
+      form?.parentElement;
 
-  const target =
-    document.querySelector(".chat-head") ||
-    document.querySelector(".topbar") ||
-    document.querySelector(".main") ||
-    form?.parentElement;
-
-  if(target){
-    target.insertBefore(wrap, target.firstChild);
+    if(target){
+      target.insertBefore(wrap, target.firstChild);
+    }
   }
 
   updateModeUI();
-
-  wrap.querySelectorAll("button").forEach(btn=>{
-    btn.onclick = ()=>{
-      if(isGenerating) return;
-
-      aiMode = btn.dataset.mode;
-      localStorage.setItem("neuromv_mode", aiMode);
-      updateModeUI();
-    };
-  });
 }
 
 function updateModeUI(){
@@ -689,6 +957,19 @@ function updateModeUI(){
     btn.classList.toggle("active", btn.dataset.mode === aiMode);
   });
 }
+
+document.addEventListener("click",(e)=>{
+  const btn = e.target.closest("#modeToggle button[data-mode]");
+
+  if(!btn) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  aiMode = btn.dataset.mode;
+  localStorage.setItem("neuromv_mode", aiMode);
+  updateModeUI();
+});
 
 // =========================
 // STATUS LOADER
@@ -781,9 +1062,7 @@ function createStatusBubble(label){
   row.innerHTML = `
     <div class="bot-bubble status-bubble">
       <span class="glossy-text">${esc(label)}</span>
-      <span class="thinking-dots">
-        <i></i><i></i><i></i>
-      </span>
+      <span class="thinking-dots"><i></i><i></i><i></i></span>
     </div>
   `;
 
@@ -795,19 +1074,22 @@ function createStatusBubble(label){
 
 function updateStatusBubble(row,label){
   if(!row) return;
+
   const text = row.querySelector(".glossy-text");
+
   if(text) text.textContent = label;
 }
 
 // =========================
-// ROUTER PRECHECK
+// ROUTER
 // =========================
-async function getRouteAction(msg,signal){
+async function getRouteAction(msg,signal,chatId=current,mode=aiMode){
   try{
     const fd = new FormData();
     fd.append("message",msg);
-    fd.append("chat_id",current || "default");
-    fd.append("mode",aiMode);
+    fd.append("chat_id",chatId || "default");
+    fd.append("mode",mode);
+    appendIdentity(fd);
 
     const res = await fetch("/route",{
       method:"POST",
@@ -854,6 +1136,12 @@ function fileToMeta(file,callback){
 }
 
 function setSelectedFile(file){
+  if(isFileLimitReached()){
+    showLimitBubble("file");
+    clearSelectedFile();
+    return;
+  }
+
   selectedFile = file;
 
   fileToMeta(file,(meta)=>{
@@ -865,6 +1153,7 @@ function setSelectedFile(file){
 function clearSelectedFile(){
   selectedFile = null;
   selectedFileMeta = null;
+
   if(fileInput) fileInput.value = "";
   if(preview) preview.innerHTML = "";
 }
@@ -906,7 +1195,6 @@ function renderChatAttachment(meta,save=true){
 
   const row = document.createElement("div");
   row.className = "user-row attachment-row";
-
   const isImg = meta.type && meta.type.startsWith("image/");
 
   if(isImg && meta.dataUrl){
@@ -935,6 +1223,7 @@ function renderChatAttachment(meta,save=true){
 
   if(save){
     const c = currentChat();
+
     if(c){
       c.msg.push({
         type:"attachment",
@@ -948,17 +1237,17 @@ function renderChatAttachment(meta,save=true){
 }
 
 // =========================
-// INIT CHAT
+// INIT / NEW CHAT
 // =========================
 function ensureInitialState(){
   cleanupEmptyChats();
 
-  if(current && !chats.some(c => c.id === current)){
+  if(current && !chats.some(c => c.id === current) && !privateChats.some(c => c.id === current)){
     current = "";
   }
 
-  currentPrivate = false;
-  showingPrivate = false;
+  currentPrivate = isPrivateChatId(current);
+  showingPrivate = currentPrivate;
 
   saveData();
 }
@@ -969,9 +1258,15 @@ function newChat(){
   showingPrivate = false;
   editingIndex = null;
 
+  if(input){
+    input.value = "";
+    input.classList.remove("editing-message");
+  }
+
   saveData();
   renderHistory();
   renderChat();
+  refreshSendButton();
   closeSidebarMobile();
 }
 
@@ -1003,6 +1298,7 @@ function renderHistory(){
       saveData();
       renderHistory();
       renderChat();
+      refreshSendButton();
       closeSidebarMobile();
     };
 
@@ -1031,6 +1327,7 @@ function renderPrivateHistory(){
     saveData();
     renderHistory();
     renderChat();
+    refreshSendButton();
   };
 
   historyBox.appendChild(back);
@@ -1064,6 +1361,7 @@ function renderPrivateHistory(){
       saveData();
       renderPrivateHistory();
       renderChat();
+      refreshSendButton();
       closeSidebarMobile();
     };
 
@@ -1113,6 +1411,7 @@ function toggleMoreMenu(){
   closeMenus();
 
   const btn = document.querySelector(".dots-btn");
+
   if(!btn || !current) return;
 
   const r = btn.getBoundingClientRect();
@@ -1141,11 +1440,10 @@ function toggleMoreMenu(){
 }
 
 // =========================
-// CHAT VIEW
+// CHAT VIEW / BUBBLES
 // =========================
 function renderChat(){
   chatBox.innerHTML = "";
-
   const c = currentChat();
 
   if(!c){
@@ -1165,26 +1463,41 @@ function renderChat(){
         <p>Start a new conversation</p>
       </div>
     `;
-    return;
+  }else{
+    c.msg.forEach((m,index)=>{
+      if(m.type === "image"){
+        bubbleImage(m.url,false);
+      }else if(m.type === "attachment"){
+        renderChatAttachment(m.meta,false);
+      }else{
+        bubble(m.text,m.role,false,false,index);
+      }
+    });
   }
 
-  c.msg.forEach((m,index)=>{
-    if(m.type === "image"){
-      bubbleImage(m.url,false);
-    }else if(m.type === "attachment"){
-      renderChatAttachment(m.meta,false);
-    }else{
-      bubble(m.text,m.role,false,false,index);
-    }
-  });
-
+  renderActiveGenerationForCurrent();
   applyHighlight();
   scrollBottom();
 }
 
-// =========================
-// BUBBLES
-// =========================
+function renderActiveGenerationForCurrent(){
+  const gen = generators[current];
+
+  if(!gen) return;
+  if(!!gen.private !== !!currentPrivate) return;
+
+  if(gen.full){
+    const bot = createBotStreamingBubble();
+    gen.streamBox = bot.box;
+    gen.statusRow = null;
+    gen.streamBox.innerHTML = parseMarkdown(gen.full) + `<span class="typing-dot">●</span>`;
+    applyHighlight();
+  }else{
+    gen.statusRow = createStatusBubble(gen.label || (gen.mode === "thinking" ? "Deep Thinking" : "Instant"));
+    gen.streamBox = null;
+  }
+}
+
 function bubble(text,role="bot",save=true,typing=false,index=null){
   const row = document.createElement("div");
   row.className = role === "user" ? "user-row" : "bot-row";
@@ -1265,10 +1578,9 @@ function bubbleImage(url,save=true){
 
     if(c){
       c.msg.push({
-        type: "image",
+        type:"image",
         url
       });
-
       saveData();
       renderSidebarList();
     }
@@ -1292,71 +1604,116 @@ function createBotStreamingBubble(){
   return {row,box};
 }
 
-function saveBotMessage(text){
-  const clean = cleanBackendStatus(text || "");
+function saveBotMessageToChat(chatId,text,targetPrivate=false){
+  const clean = cleanBackendStatus(cleanHtmlStyleLeaks(text || ""));
+
   if(!clean.trim()) return;
 
-  const c = currentChat();
+  let c = getChatById(chatId,targetPrivate) || getAnyChatById(chatId);
 
-  if(c){
-    c.msg.push({
-      role:"bot",
-      text:clean,
-      type:"text"
-    });
+  if(!c) return;
 
-    saveData();
-    renderSidebarList();
+  c.msg.push({
+    role:"bot",
+    text:clean,
+    type:"text"
+  });
+
+  saveData();
+  renderSidebarList();
+}
+
+function ensureStreamBoxForGen(gen,targetChatId,targetIsPrivate){
+  if(current !== targetChatId || currentPrivate !== targetIsPrivate) return;
+
+  if(gen.statusRow && document.body.contains(gen.statusRow)){
+    gen.statusRow.remove();
+    gen.statusRow = null;
+  }
+
+  if(!gen.streamBox || !document.body.contains(gen.streamBox)){
+    const bot = createBotStreamingBubble();
+    gen.streamBox = bot.box;
   }
 }
 
 // =========================
-// STREAMING TEXT SEND
+// STREAMING SEND
 // =========================
-async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true){
-  activeController = new AbortController();
-  setGeneratingState(true);
-  stopRequested = false;
+async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true,targetPrivate=currentPrivate){
+  const controller = new AbortController();
 
-  let load = null;
-  let streamBox = null;
+  const targetChatId = chatIdForTitle;
+  const targetIsPrivate = !!targetPrivate;
+  const modeAtStart = aiMode;
+
+  generators[targetChatId] = {
+    controller,
+    stopped:false,
+    private:targetIsPrivate,
+    full:"",
+    streamBox:null,
+    statusRow:null,
+    label:modeAtStart === "thinking" ? "Deep Thinking" : "Instant",
+    mode:modeAtStart
+  };
+
+  activeController = controller;
+  refreshSendButton();
+
+  const gen = generators[targetChatId];
+
   let full = "";
   let gotImage = false;
 
   try{
-    load = createStatusBubble(aiMode === "thinking" ? "Deep Thinking" : "Instant");
+    if(current === targetChatId && currentPrivate === targetIsPrivate){
+      gen.statusRow = createStatusBubble(gen.label);
+    }
 
-    const action = await getRouteAction(msg,activeController.signal);
-    updateStatusBubble(load,labelFromAction(action,msg,null));
+    const action = await getRouteAction(msg,controller.signal,targetChatId,modeAtStart);
+    gen.label = labelFromAction(action,msg,null);
+
+    if(gen.statusRow && document.body.contains(gen.statusRow)){
+      updateStatusBubble(gen.statusRow,gen.label);
+    }
 
     const fd = new FormData();
     fd.append("message",msg);
-    fd.append("chat_id",current);
-    fd.append("mode",aiMode);
+    fd.append("chat_id",targetChatId);
+    fd.append("mode",modeAtStart);
+    appendIdentity(fd);
 
     const res = await fetch("/chat_stream",{
       method:"POST",
       body:fd,
-      signal:activeController.signal
+      signal:controller.signal
     });
 
-    load.remove();
-    load = null;
+    if(gen.statusRow && document.body.contains(gen.statusRow)){
+      gen.statusRow.remove();
+      gen.statusRow = null;
+    }
 
-    const bot = createBotStreamingBubble();
-    streamBox = bot.box;
+    if(current === targetChatId && currentPrivate === targetIsPrivate){
+      ensureStreamBoxForGen(gen,targetChatId,targetIsPrivate);
+    }
+
+    if(!res.body){
+      throw new Error("No stream body");
+    }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder("utf-8");
-
     let buffer = "";
 
     while(true){
-      if(stopRequested){
+      if(!generators[targetChatId] || gen.stopped){
         throw new DOMException("Stopped", "AbortError");
       }
 
       const {done,value} = await reader.read();
+
       if(done) break;
 
       buffer += decoder.decode(value,{stream:true});
@@ -1365,49 +1722,109 @@ async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true){
       buffer = parts.pop();
 
       for(const part of parts){
-        if(stopRequested){
+        if(!generators[targetChatId] || gen.stopped){
           throw new DOMException("Stopped", "AbortError");
         }
 
         const line = part.trim();
+
         if(!line.startsWith("data:")) continue;
 
         const jsonText = line.replace(/^data:\s*/,"");
 
         try{
           const data = JSON.parse(jsonText);
+          updateLimitStateFromPayload(data);
 
           if(data.type === "token"){
-            if(stopRequested){
-              throw new DOMException("Stopped", "AbortError");
-            }
-
             full += data.text || "";
-            streamBox.innerHTML = parseMarkdown(full) + `<span class="typing-dot">●</span>`;
-            scrollBottom();
+            gen.full = full;
+
+            if(current === targetChatId && currentPrivate === targetIsPrivate){
+              ensureStreamBoxForGen(gen,targetChatId,targetIsPrivate);
+
+              if(gen.streamBox){
+                gen.streamBox.innerHTML = parseMarkdown(full) + `<span class="typing-dot">●</span>`;
+                scrollBottom();
+              }
+            }
 
             await sleep(STREAM_TOKEN_DELAY);
 
-            if(stopRequested){
+            if(!generators[targetChatId] || gen.stopped){
               throw new DOMException("Stopped", "AbortError");
             }
           }
 
           if(data.type === "image"){
             gotImage = true;
-            streamBox.parentElement.remove();
-            bubbleImage(data.url,true);
+
+            if(gen.streamBox && gen.streamBox.parentElement){
+              gen.streamBox.parentElement.remove();
+            }
+
+            if(current === targetChatId && currentPrivate === targetIsPrivate){
+              bubbleImage(data.url,true);
+            }else{
+              const c = getChatById(targetChatId,targetIsPrivate) || getAnyChatById(targetChatId);
+
+              if(c){
+                c.msg.push({
+                  type:"image",
+                  url:data.url
+                });
+                saveData();
+              }
+            }
           }
 
           if(data.type === "error"){
+            if(data.code === "limit_chat"){
+              limitState.chat = 0;
+              saveLimitState();
+              applyLimitUI();
+              showLimitBubble("chat");
+
+              if(gen.streamBox && gen.streamBox.parentElement){
+                gen.streamBox.parentElement.remove();
+              }
+
+              full = "";
+              gen.full = "";
+              continue;
+            }
+
+            if(data.code === "limit_image"){
+              limitState.image = 0;
+              saveLimitState();
+              applyLimitUI();
+              showLimitBubble("image");
+
+              if(gen.streamBox && gen.streamBox.parentElement){
+                gen.streamBox.parentElement.remove();
+              }
+
+              full = "";
+              gen.full = "";
+              continue;
+            }
+
             full += data.text || "Error.";
-            streamBox.innerHTML = parseMarkdown(full);
-            scrollBottom();
+            gen.full = full;
+
+            if(current === targetChatId && currentPrivate === targetIsPrivate){
+              ensureStreamBoxForGen(gen,targetChatId,targetIsPrivate);
+
+              if(gen.streamBox){
+                gen.streamBox.innerHTML = parseMarkdown(full);
+                scrollBottom();
+              }
+            }
           }
 
           if(data.type === "done"){
-            if(!gotImage){
-              streamBox.innerHTML = parseMarkdown(full);
+            if(!gotImage && gen.streamBox){
+              gen.streamBox.innerHTML = parseMarkdown(full);
               applyHighlight();
             }
           }
@@ -1418,35 +1835,54 @@ async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true){
     }
 
     if(!gotImage){
-      streamBox.innerHTML = parseMarkdown(full);
-      applyHighlight();
-      saveBotMessage(full);
+      if(gen.streamBox){
+        gen.streamBox.innerHTML = parseMarkdown(full);
+        applyHighlight();
+      }
+
+      saveBotMessageToChat(targetChatId,full,targetIsPrivate);
 
       if(shouldUpdateTitle){
-        updateChatTitleSmart(chatIdForTitle,msg,full,null);
+        updateChatTitleSmart(targetChatId,msg,full,null);
       }
     }
 
   }catch(err){
-    if(load) load.remove();
+    if(gen.statusRow && document.body.contains(gen.statusRow)){
+      gen.statusRow.remove();
+    }
 
     if(err.name === "AbortError"){
-      if(streamBox){
-        streamBox.innerHTML = parseMarkdown(full);
-        applyHighlight();
+      const savedText = gen?.full || full;
 
-        if(full.trim()){
-          saveBotMessage(full);
-        }
+      if(gen.streamBox){
+        gen.streamBox.innerHTML = parseMarkdown(savedText);
+        applyHighlight();
+      }
+
+      if(savedText.trim()){
+        saveBotMessageToChat(targetChatId,savedText,targetIsPrivate);
       }
     }else{
-      bubble("Connection error.","bot",true,false);
+      const text = "Connection error.";
+
+      if(current === targetChatId && currentPrivate === targetIsPrivate){
+        bubble(text,"bot",true,false);
+      }else{
+        saveBotMessageToChat(targetChatId,text,targetIsPrivate);
+      }
     }
 
   }finally{
-    activeController = null;
-    stopRequested = false;
-    setGeneratingState(false);
+    if(generators[targetChatId] === gen){
+      delete generators[targetChatId];
+    }
+
+    if(activeController === controller){
+      activeController = null;
+    }
+
+    refreshSendButton();
     scrollBottom();
   }
 }
@@ -1454,18 +1890,38 @@ async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true){
 // =========================
 // NORMAL FILE SEND
 // =========================
-async function sendNormalWithFile(msg,fileToSend,chatIdForTitle){
-  activeController = new AbortController();
-  setGeneratingState(true);
-  stopRequested = false;
+async function sendNormalWithFile(msg,fileToSend,chatIdForTitle,targetPrivate=currentPrivate){
+  const controller = new AbortController();
 
-  const label = labelFromAction("chat",msg,fileToSend);
-  const load = createStatusBubble(label);
+  const targetChatId = chatIdForTitle;
+  const targetIsPrivate = !!targetPrivate;
+  const modeAtStart = aiMode;
+
+  generators[targetChatId] = {
+    controller,
+    stopped:false,
+    private:targetIsPrivate,
+    full:"",
+    streamBox:null,
+    statusRow:null,
+    label:labelFromAction("chat",msg,fileToSend),
+    mode:modeAtStart
+  };
+
+  activeController = controller;
+  refreshSendButton();
+
+  const gen = generators[targetChatId];
+
+  if(current === targetChatId && currentPrivate === targetIsPrivate){
+    gen.statusRow = createStatusBubble(gen.label);
+  }
 
   const fd = new FormData();
   fd.append("message",msg);
-  fd.append("chat_id",current);
-  fd.append("mode",aiMode);
+  fd.append("chat_id",targetChatId);
+  fd.append("mode",modeAtStart);
+  appendIdentity(fd);
   fd.append("file",fileToSend);
 
   clearSelectedFile();
@@ -1474,36 +1930,94 @@ async function sendNormalWithFile(msg,fileToSend,chatIdForTitle){
     const res = await fetch("/chat",{
       method:"POST",
       body:fd,
-      signal:activeController.signal
+      signal:controller.signal
     });
 
     const data = await res.json();
+    updateLimitStateFromPayload(data);
 
-    load.remove();
+    if(gen.statusRow && document.body.contains(gen.statusRow)){
+      gen.statusRow.remove();
+    }
 
-    if(data.type === "image"){
-      bubbleImage(data.url,true);
-      updateChatTitleSmart(chatIdForTitle,msg,"Image generated",fileToSend);
+    if(data.type === "limit_chat"){
+      limitState.chat = 0;
+      saveLimitState();
+      applyLimitUI();
+      showLimitBubble("chat");
       return;
     }
 
-    const reply = cleanBackendStatus(data.reply || "No response.");
-    bubble(reply,"bot",true,aiMode === "thinking");
-    updateChatTitleSmart(chatIdForTitle,msg,reply,fileToSend);
+    if(data.type === "limit_file"){
+      limitState.file = 0;
+      saveLimitState();
+      applyLimitUI();
+      showLimitBubble("file");
+      return;
+    }
+
+    if(data.type === "limit_image"){
+      limitState.image = 0;
+      saveLimitState();
+      applyLimitUI();
+      showLimitBubble("image");
+      return;
+    }
+
+    if(data.type === "image"){
+      if(current === targetChatId && currentPrivate === targetIsPrivate){
+        bubbleImage(data.url,true);
+      }else{
+        const c = getChatById(targetChatId,targetIsPrivate) || getAnyChatById(targetChatId);
+
+        if(c){
+          c.msg.push({
+            type:"image",
+            url:data.url
+          });
+          saveData();
+        }
+      }
+
+      updateChatTitleSmart(targetChatId,msg,"Image generated",fileToSend);
+      return;
+    }
+
+    const reply = cleanBackendStatus(cleanHtmlStyleLeaks(data.reply || "No response."));
+
+    if(current === targetChatId && currentPrivate === targetIsPrivate){
+      bubble(reply,"bot",true,modeAtStart === "thinking");
+    }else{
+      saveBotMessageToChat(targetChatId,reply,targetIsPrivate);
+    }
+
+    updateChatTitleSmart(targetChatId,msg,reply,fileToSend);
 
   }catch(err){
-    load.remove();
+    if(gen.statusRow && document.body.contains(gen.statusRow)){
+      gen.statusRow.remove();
+    }
 
-    if(err.name === "AbortError"){
-      // stop quietly like ChatGPT
-    }else{
-      bubble("Connection error.","bot",true,false);
+    if(err.name !== "AbortError"){
+      const text = "Connection error.";
+
+      if(current === targetChatId && currentPrivate === targetIsPrivate){
+        bubble(text,"bot",true,false);
+      }else{
+        saveBotMessageToChat(targetChatId,text,targetIsPrivate);
+      }
     }
 
   }finally{
-    activeController = null;
-    stopRequested = false;
-    setGeneratingState(false);
+    if(generators[targetChatId] === gen){
+      delete generators[targetChatId];
+    }
+
+    if(activeController === controller){
+      activeController = null;
+    }
+
+    refreshSendButton();
     scrollBottom();
   }
 }
@@ -1514,20 +2028,32 @@ async function sendNormalWithFile(msg,fileToSend,chatIdForTitle){
 form.addEventListener("submit", async(e)=>{
   e.preventDefault();
 
-  if(isGenerating){
+  if(chatIsGenerating(current)){
     stopGenerating();
+    return;
+  }
+
+  if(isChatLimitReached()){
+    applyLimitUI();
+    showLimitBubble("chat");
     return;
   }
 
   const msg = input.value.trim();
   const fileToSend = selectedFile;
+
+  if(fileToSend && isFileLimitReached()){
+    applyLimitUI();
+    showLimitBubble("file");
+    return;
+  }
+
   const metaToRender = fileToSend && selectedFileMeta
     ? JSON.parse(JSON.stringify(selectedFileMeta))
     : null;
 
   if(!msg && !fileToSend) return;
 
-  // EDIT MODE
   if(editingIndex !== null){
     const c = currentChat();
 
@@ -1537,10 +2063,14 @@ form.addEventListener("submit", async(e)=>{
       return;
     }
 
+    const editedFirst = editingIndex === 0;
+    const chatIdForTitle = current;
+    const targetPrivate = currentPrivate;
+
     c.msg[editingIndex].text = msg;
     c.msg = c.msg.slice(0, editingIndex + 1);
 
-    if(editingIndex === 0){
+    if(editedFirst){
       c.title = makeSmartTitle(msg,null);
       c.autoTitleDone = false;
     }
@@ -1548,12 +2078,11 @@ form.addEventListener("submit", async(e)=>{
     saveData();
     renderChat();
 
-    const chatIdForTitle = current;
     editingIndex = null;
     input.classList.remove("editing-message");
     input.value = "";
 
-    await sendStreamingMessage(msg,chatIdForTitle,editingIndex === 0);
+    await sendStreamingMessage(msg,chatIdForTitle,editedFirst,targetPrivate);
     return;
   }
 
@@ -1562,8 +2091,10 @@ form.addEventListener("submit", async(e)=>{
   }
 
   const chatIdForTitle = current;
+  const targetPrivate = currentPrivate;
 
   const welcome = chatBox.querySelector(".welcome");
+
   if(welcome) welcome.remove();
 
   if(metaToRender){
@@ -1579,9 +2110,9 @@ form.addEventListener("submit", async(e)=>{
   input.value = "";
 
   if(fileToSend){
-    await sendNormalWithFile(msg,fileToSend,chatIdForTitle);
+    await sendNormalWithFile(msg,fileToSend,chatIdForTitle,targetPrivate);
   }else{
-    await sendStreamingMessage(msg,chatIdForTitle,true);
+    await sendStreamingMessage(msg,chatIdForTitle,true,targetPrivate);
   }
 });
 
@@ -1589,26 +2120,46 @@ form.addEventListener("submit", async(e)=>{
 // FILE INPUT + PASTE IMAGE
 // =========================
 fileInput.addEventListener("change",()=>{
+  if(isFileLimitReached()){
+    clearSelectedFile();
+    showLimitBubble("file");
+    applyLimitUI();
+    return;
+  }
+
   const f = fileInput.files[0];
+
   if(!f) return;
+
   setSelectedFile(f);
 });
 
 function handlePasteImage(e){
-  if(isGenerating) return;
+  if(chatIsGenerating(current)) return;
+
+  if(isFileLimitReached()){
+    showLimitBubble("file");
+    e.preventDefault();
+    return;
+  }
 
   const items = e.clipboardData?.items;
+
   if(!items) return;
 
   for(const item of items){
     if(item.kind === "file" && item.type.startsWith("image/")){
       const file = item.getAsFile();
+
       if(file){
         const ext = item.type.split("/")[1] || "png";
+
         const namedFile = new File(
           [file],
           `pasted-image-${Date.now()}.${ext}`,
-          {type:item.type}
+          {
+            type:item.type
+          }
         );
 
         setSelectedFile(namedFile);
@@ -1626,9 +2177,17 @@ input.addEventListener("paste",handlePasteImage);
 // ENTER SEND BLOCKER
 // =========================
 input.addEventListener("keydown",(e)=>{
-  if(isGenerating && e.key === "Enter"){
+  if(chatIsGenerating(current) && e.key === "Enter"){
     e.preventDefault();
     e.stopPropagation();
+    return false;
+  }
+
+  if(isChatLimitReached() && e.key === "Enter"){
+    e.preventDefault();
+    e.stopPropagation();
+    applyLimitUI();
+    showLimitBubble("chat");
     return false;
   }
 
@@ -1649,7 +2208,11 @@ input.addEventListener("keydown",(e)=>{
 // RENAME / DELETE
 // =========================
 function openRename(id,isPrivate=false){
-  renameTarget = {id,isPrivate};
+  renameTarget = {
+    id,
+    isPrivate
+  };
+
   renameInput.value = "";
   renameModal.classList.remove("hidden");
 }
@@ -1660,6 +2223,7 @@ function closeRename(){
 
 function saveRename(){
   const val = renameInput.value.trim();
+
   if(!val || !renameTarget) return;
 
   const arr = renameTarget.isPrivate ? privateChats : chats;
@@ -1673,7 +2237,11 @@ function saveRename(){
 }
 
 function askDelete(id,isPrivate=false){
-  deleteTarget = {id,isPrivate};
+  deleteTarget = {
+    id,
+    isPrivate
+  };
+
   deleteModal.classList.remove("hidden");
 }
 
@@ -1702,6 +2270,7 @@ function confirmDelete(){
     }
 
     renderChat();
+    refreshSendButton();
     return;
   }
 
@@ -1715,6 +2284,7 @@ function confirmDelete(){
   closeDelete();
   renderHistory();
   renderChat();
+  refreshSendButton();
 }
 
 // =========================
@@ -1764,6 +2334,7 @@ function closePin(){
 
 function submitPin(){
   const val = pinInput.value.trim();
+
   if(!val) return;
 
   if(pinMode === "create" || pinMode === "createOpen"){
@@ -1791,6 +2362,7 @@ function submitPin(){
 
 function doPrivate(){
   const i = chats.findIndex(x => x.id === pendingPrivateId);
+
   if(i === -1) return;
 
   privateChats.unshift(chats[i]);
@@ -1806,10 +2378,12 @@ function doPrivate(){
   saveData();
   renderHistory();
   renderChat();
+  refreshSendButton();
 }
 
 function doUnprivate(){
   const i = privateChats.findIndex(x => x.id === pendingPrivateId);
+
   if(i === -1) return;
 
   chats.unshift(privateChats[i]);
@@ -1822,11 +2396,13 @@ function doUnprivate(){
   saveData();
   renderHistory();
   renderChat();
+  refreshSendButton();
 }
 
 function showPrivate(){
   showingPrivate = true;
   renderPrivateHistory();
+  refreshSendButton();
 }
 
 // =========================
@@ -1849,7 +2425,8 @@ document.addEventListener("click",(e)=>{
   if(
     !e.target.closest(".mini-menu") &&
     !e.target.closest(".icon-btn") &&
-    !e.target.closest(".dots-btn")
+    !e.target.closest(".dots-btn") &&
+    !e.target.closest("#modeToggle")
   ){
     closeMenus();
   }
@@ -1863,3 +2440,5 @@ ensureInitialState();
 renderHistory();
 renderChat();
 renderInputPreview();
+refreshSendButton();
+fetchLimits();

@@ -1594,3 +1594,147 @@ body{
     max-width:92% !important;
   }
 }
+
+/* ==================================================
+   NEUROMV LIMIT UI PATCH
+   Dark disabled buttons when daily limit is reached
+================================================== */
+
+.limit-disabled,
+button.limit-disabled,
+.upload-btn.limit-disabled{
+  opacity:.38 !important;
+  filter:grayscale(1) brightness(.65) !important;
+  cursor:not-allowed !important;
+  box-shadow:none !important;
+}
+
+/* Tombol send yang kena limit */
+button.limit-disabled,
+#sendBtn.limit-disabled{
+  background:rgba(255,255,255,.08) !important;
+  color:rgba(255,255,255,.45) !important;
+  border-color:rgba(255,255,255,.06) !important;
+}
+
+/* Tombol + upload yang kena limit */
+.upload-btn.limit-disabled{
+  background:rgba(255,255,255,.06) !important;
+  color:rgba(255,255,255,.35) !important;
+  border-color:rgba(255,255,255,.06) !important;
+}
+
+/* Bener-bener tidak bisa dipencet */
+button.limit-disabled,
+.upload-btn.limit-disabled{
+  pointer-events:none !important;
+}
+
+/* Input file juga mati kalau limit upload habis */
+.upload-btn.limit-disabled input,
+input[type="file"]:disabled{
+  pointer-events:none !important;
+}
+
+/* Saat limit chat habis, textarea tetap bisa diketik */
+textarea.limit-chat-reached,
+#input.limit-chat-reached{
+  opacity:1 !important;
+  cursor:text !important;
+}
+
+/* Stop button tetap boleh aktif walaupun limit habis */
+.stop-mode{
+  opacity:1 !important;
+  filter:none !important;
+  cursor:pointer !important;
+  pointer-events:auto !important;
+}
+
+/* ==================================================
+   NEUROMV LIMIT POPUP — CHATGPT STYLE
+================================================== */
+
+.limit-popup{
+  position:fixed;
+  left:50%;
+  bottom:26px;
+  transform:translateX(-50%) translateY(18px);
+  z-index:999999;
+  opacity:0;
+  pointer-events:none;
+  transition:.25s ease;
+  width:min(460px, calc(100vw - 28px));
+}
+
+.limit-popup.show{
+  opacity:1;
+  transform:translateX(-50%) translateY(0);
+  pointer-events:auto;
+}
+
+.limit-popup-card{
+  display:flex;
+  align-items:flex-start;
+  gap:12px;
+  position:relative;
+  padding:14px 44px 14px 14px;
+  border-radius:18px;
+  background:
+    linear-gradient(135deg,rgba(255,255,255,.10),rgba(255,255,255,.035)),
+    rgba(20,22,30,.94);
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:
+    0 18px 45px rgba(0,0,0,.38),
+    inset 0 1px 0 rgba(255,255,255,.08);
+  backdrop-filter:blur(18px);
+}
+
+.limit-popup-icon{
+  width:28px;
+  height:28px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex:0 0 auto;
+  background:rgba(255,255,255,.12);
+  color:#fff;
+  font-weight:800;
+  font-size:16px;
+}
+
+.limit-popup-content strong{
+  display:block;
+  color:#fff;
+  font-size:14px;
+  line-height:1.35;
+  margin-bottom:3px;
+}
+
+.limit-popup-content p{
+  margin:0;
+  color:rgba(255,255,255,.72);
+  font-size:13px;
+  line-height:1.45;
+}
+
+.limit-popup-x{
+  position:absolute;
+  right:10px;
+  top:10px;
+  width:26px;
+  height:26px;
+  border:none;
+  border-radius:50%;
+  background:rgba(255,255,255,.08);
+  color:rgba(255,255,255,.78);
+  cursor:pointer;
+  font-size:18px;
+  line-height:1;
+}
+
+.limit-popup-x:hover{
+  background:rgba(255,255,255,.15);
+  color:#fff;
+}
