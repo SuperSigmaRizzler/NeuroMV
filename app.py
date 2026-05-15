@@ -40,7 +40,7 @@ except Exception:
 # APP
 # ==================================================
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "neuromv-premium-chatgpt-like-secret")
+app.secret_key = os.getenv("SECRET_KEY", "neuromv-gemini-mistral-final-secret")
 
 # ==================================================
 # CONFIG
@@ -83,9 +83,11 @@ def shuffled(arr):
     return tmp
 
 
+GEMINI_KEYS = split_keys("GEMINI_API_KEYS") or split_keys("GEMINI_API_KEY")
+MISTRAL_KEYS = split_keys("MISTRAL_API_KEYS") or split_keys("MISTRAL_API_KEY")
+
 GROQ_KEYS = split_keys("GROQ_API_KEYS") or split_keys("GROQ_API_KEY")
 CEREBRAS_KEYS = split_keys("CEREBRAS_API_KEYS") or split_keys("CEREBRAS_API_KEY")
-GEMINI_KEYS = split_keys("GEMINI_API_KEYS") or split_keys("GEMINI_API_KEY")
 
 TAVILY_KEYS = split_keys("TAVILY_API_KEYS") or split_keys("TAVILY_API_KEY")
 SERPER_KEYS = split_keys("SERPER_API_KEYS") or split_keys("SERPER_API_KEY")
@@ -107,6 +109,10 @@ CLOUDFLARE_API_TOKENS = split_keys("CLOUDFLARE_API_TOKENS") or split_keys("CLOUD
 FEATURE_MANIFEST = """
 NeuroMV current capabilities:
 - Normal AI chat
+- Gemini as main response brain
+- Gemini as main streaming brain when available
+- Gemini as main search-answer reasoning brain
+- Gemini Vision as main real vision AI
 - Instant mode for fast answers
 - Thinking mode for deeper, more careful answers
 - Token-by-token streaming endpoint
@@ -118,12 +124,11 @@ NeuroMV current capabilities:
 - URL reader
 - File reader: PDF, DOCX, CSV, ZIP, TXT, code files
 - Vision AI image analysis
-- OCR pipeline using PaddleOCR, Gemini OCR, and optional OCR.Space fallback
-- Cloudflare Workers AI Vision
-- Gemini Vision fallback
+- OCR pipeline using Mistral OCR, PaddleOCR, and optional OCR.Space fallback
+- Cloudflare Workers AI Vision fallback
 - Groq Vision fallback
 - HuggingFace BLIP fallback
-- Image generation
+- Image generation using Pollinations
 - Clickable source icons
 - Private chat UI with PIN on frontend
 - Premium status UI: Searching, Thinking, Analyzing Image, Reading URL, Creating Image
@@ -132,7 +137,7 @@ NeuroMV current capabilities:
 """
 
 # ==================================================
-# PREMIUM BRAIN PROMPTS
+# PROMPTS
 # ==================================================
 SYSTEM_PROMPT = """
 You are NeuroMV, a premium AI assistant created by Marvell Jonathan Siau.
@@ -146,11 +151,11 @@ Identity:
 Core behavior:
 - Be helpful, accurate, calm, intelligent, and natural.
 - Match the user's language automatically.
-- Match the user's tone naturally:
-  - Formal user -> formal answer.
-  - Casual user -> casual but still intelligent answer.
-  - Energetic user -> energetic but not chaotic.
-  - Frustrated/tired user -> supportive, clear, and direct.
+- Match the user's tone naturally.
+- Formal user -> formal answer.
+- Casual user -> casual but still intelligent answer.
+- Energetic user -> energetic but not chaotic.
+- Frustrated/tired user -> supportive, clear, and direct.
 - Do not force one fixed personality on every answer.
 - Do not overuse slang.
 - Do not overuse emojis.
@@ -163,12 +168,7 @@ Premium response quality:
 - Lead with the useful answer, not unnecessary disclaimers.
 - Be concise when the task is simple.
 - Be thorough when the task needs depth.
-- Use clean formatting:
-  - Short paragraphs
-  - Clear headings when useful
-  - Numbered steps when useful
-  - Tables only when they genuinely help
-  - Code blocks for code
+- Use clean formatting with short paragraphs, clear headings, steps, and code blocks when useful.
 - Avoid sounding robotic.
 - Avoid repeating the user's question unless needed.
 - Avoid ending with too many follow-up options.
@@ -178,7 +178,7 @@ Premium response quality:
 Reasoning and accuracy:
 - Think carefully before answering.
 - Do not guess when the answer depends on current or missing information.
-- If something is uncertain, say it clearly and give the most likely explanation.
+- If something is uncertain, say it clearly.
 - When live search results are provided, prioritize them over model memory.
 - Never override live web results with old memory.
 - For current facts such as leaders, prices, releases, news, schedules, laws, or events, use search context when available.
@@ -1573,6 +1573,82 @@ def messages_to_text(messages):
     return "\n".join(out)
 
 
+def gemini_models():
+    models = []
+
+    env_model = os.getenv("GEMINI_MODEL", "").strip()
+    if env_model:
+        models.append(env_model)
+
+    models += [
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
+    ]
+
+    return list(dict.fromkeys([m for m in models if m]))
+
+
+def ask_gemini_text(prompt):
+    if not GEMINI_KEYS:
+        return None
+
+    for model in gemini_models():
+        for key in shuffled(GEMINI_KEYS):
+            for _ in range(MAX_RETRIES):
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+
+                    r = requests.post(
+                        url,
+                        json={
+                            "contents": [
+                                {
+                                    "parts": [
+                                        {
+                                            "text": prompt
+                                        }
+                                    ]
+                                }
+                            ],
+                            "generationConfig": {
+                                "temperature": 0.7,
+                                "maxOutputTokens": 4096
+                            }
+                        },
+                        timeout=REQUEST_TIMEOUT
+                    )
+
+                    if r.status_code == 200:
+                        data = r.json()
+                        candidates = data.get("candidates", [])
+
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            texts = []
+
+                            for p in parts:
+                                if p.get("text"):
+                                    texts.append(p["text"])
+
+                            if texts:
+                                return "\n".join(texts).strip()
+
+                    if r.status_code in [400, 401, 403, 404, 429]:
+                        break
+
+                except Exception:
+                    pass
+
+                time.sleep(0.35)
+
+    return None
+
+
+def ask_gemini_chat(messages):
+    prompt = messages_to_text(messages)
+    return ask_gemini_text(prompt)
+
+
 def ask_groq(messages, model=None, mode="thinking"):
     if not GROQ_KEYS:
         return None
@@ -1672,46 +1748,6 @@ def ask_cerebras(messages):
     return None
 
 
-def ask_gemini_text(prompt):
-    if not GEMINI_KEYS:
-        return None
-
-    for key in shuffled(GEMINI_KEYS):
-        for _ in range(MAX_RETRIES):
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
-
-                r = requests.post(
-                    url,
-                    json={
-                        "contents": [
-                            {
-                                "parts": [
-                                    {
-                                        "text": prompt
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    timeout=REQUEST_TIMEOUT
-                )
-
-                if r.status_code == 200:
-                    data = r.json()
-                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-                if r.status_code in [400, 401, 403, 404, 429]:
-                    break
-
-            except Exception:
-                pass
-
-            time.sleep(0.35)
-
-    return None
-
-
 def local_fallback(msg):
     p = get_profile()
     low = msg.lower()
@@ -1733,9 +1769,9 @@ def ask_ai(cid, msg, mode="thinking"):
     messages = build_messages(cid, msg, mode)
 
     providers = [
+        lambda: ask_gemini_chat(messages),
         lambda: ask_groq(messages, mode=mode),
-        lambda: ask_cerebras(messages),
-        lambda: ask_gemini_text(messages_to_text(messages))
+        lambda: ask_cerebras(messages)
     ]
 
     for fn in providers:
@@ -1751,6 +1787,58 @@ def ask_ai(cid, msg, mode="thinking"):
             pass
 
     return local_fallback(msg)
+
+# ==================================================
+# STREAMING PROVIDERS
+# ==================================================
+def stream_gemini(messages, mode="thinking"):
+    if not GEMINI_KEYS:
+        return None
+
+    prompt = messages_to_text(messages)
+
+    for model in gemini_models():
+        for key in shuffled(GEMINI_KEYS):
+            for _ in range(MAX_RETRIES):
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?key={key}&alt=sse"
+
+                    r = requests.post(
+                        url,
+                        json={
+                            "contents": [
+                                {
+                                    "parts": [
+                                        {
+                                            "text": prompt
+                                        }
+                                    ]
+                                }
+                            ],
+                            "generationConfig": {
+                                "temperature": 0.7,
+                                "maxOutputTokens": 4096
+                            }
+                        },
+                        timeout=REQUEST_TIMEOUT,
+                        stream=True
+                    )
+
+                    if r.status_code == 200:
+                        return {
+                            "provider": "gemini",
+                            "response": r
+                        }
+
+                    if r.status_code in [400, 401, 403, 404, 429]:
+                        break
+
+                except Exception:
+                    pass
+
+                time.sleep(0.35)
+
+    return None
 
 
 def stream_groq(messages, mode="thinking"):
@@ -1794,12 +1882,82 @@ def stream_groq(messages, mode="thinking"):
                 )
 
                 if r.status_code == 200:
-                    return r
+                    return {
+                        "provider": "groq",
+                        "response": r
+                    }
 
             except Exception:
                 pass
 
     return None
+
+
+def iter_stream_tokens(pack):
+    if not pack:
+        return
+
+    provider = pack.get("provider")
+    r = pack.get("response")
+
+    if provider == "gemini":
+        for line in r.iter_lines():
+            if not line:
+                continue
+
+            raw = line.decode("utf-8", errors="ignore").strip()
+
+            if not raw.startswith("data:"):
+                continue
+
+            payload = raw.replace("data:", "", 1).strip()
+
+            if not payload or payload == "[DONE]":
+                continue
+
+            try:
+                data = json.loads(payload)
+                candidates = data.get("candidates", [])
+
+                if not candidates:
+                    continue
+
+                parts = candidates[0].get("content", {}).get("parts", [])
+
+                for p in parts:
+                    token = p.get("text", "")
+
+                    if token:
+                        yield token
+
+            except Exception:
+                pass
+
+    elif provider == "groq":
+        for line in r.iter_lines():
+            if not line:
+                continue
+
+            raw = line.decode("utf-8", errors="ignore")
+
+            if not raw.startswith("data: "):
+                continue
+
+            payload = raw.replace("data: ", "").strip()
+
+            if payload == "[DONE]":
+                break
+
+            try:
+                data = json.loads(payload)
+                delta = data["choices"][0].get("delta", {})
+                token = delta.get("content", "")
+
+                if token:
+                    yield token
+
+            except Exception:
+                pass
 
 # ==================================================
 # SMART ROUTER
@@ -1923,9 +2081,9 @@ JSON format:
     ]
 
     out = (
-        ask_groq(router_messages, mode="instant")
+        ask_gemini_chat(router_messages)
+        or ask_groq(router_messages, mode="instant")
         or ask_cerebras(router_messages)
-        or ask_gemini_text(router_prompt)
     )
 
     data = extract_json(out)
@@ -2037,6 +2195,60 @@ def flatten_paddle_text(result):
     return "\n".join(clean)
 
 
+def ocr_mistral_image(image_bytes, filename):
+    if not MISTRAL_KEYS:
+        return ""
+
+    b64 = base64.b64encode(image_bytes).decode()
+    mime = image_mime(filename)
+    data_url = f"data:{mime};base64,{b64}"
+
+    payload = {
+        "model": "mistral-ocr-latest",
+        "document": {
+            "type": "image_url",
+            "image_url": data_url
+        },
+        "include_image_base64": False
+    }
+
+    for key in shuffled(MISTRAL_KEYS):
+        for _ in range(MAX_RETRIES):
+            try:
+                r = requests.post(
+                    "https://api.mistral.ai/v1/ocr",
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json"
+                    },
+                    json=payload,
+                    timeout=REQUEST_TIMEOUT
+                )
+
+                if r.status_code == 200:
+                    data = r.json()
+                    pages = data.get("pages", [])
+                    out = []
+
+                    for p in pages:
+                        markdown = p.get("markdown", "")
+
+                        if markdown and markdown.strip():
+                            out.append(markdown.strip())
+
+                    return "\n\n".join(out)[:7000]
+
+                if r.status_code in [400, 401, 403, 404, 429]:
+                    break
+
+            except Exception:
+                pass
+
+            time.sleep(0.35)
+
+    return ""
+
+
 def ocr_paddle_image(image_bytes, filename="image.jpg"):
     try:
         engine = get_paddle_ocr()
@@ -2075,78 +2287,6 @@ def ocr_paddle_image(image_bytes, filename="image.jpg"):
 
     except Exception:
         return ""
-
-
-def ask_vision_gemini(prompt, image_bytes, filename):
-    if not GEMINI_KEYS:
-        return None
-
-    b64 = base64.b64encode(image_bytes).decode()
-    mime = image_mime(filename)
-
-    for key in shuffled(GEMINI_KEYS):
-        for _ in range(MAX_RETRIES):
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
-
-                payload = {
-                    "contents": [
-                        {
-                            "parts": [
-                                {
-                                    "text": prompt or "Analyze this image clearly."
-                                },
-                                {
-                                    "inline_data": {
-                                        "mime_type": mime,
-                                        "data": b64
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                }
-
-                r = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
-
-                if r.status_code == 200:
-                    data = r.json()
-                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-                if r.status_code in [400, 401, 403, 404, 429]:
-                    break
-
-            except Exception:
-                pass
-
-            time.sleep(0.35)
-
-    return None
-
-
-def ocr_gemini_image(image_bytes, filename):
-    prompt = """
-Read and transcribe all visible text from this image as accurately as possible.
-
-Important:
-- Include printed text, handwriting if visible, math expressions, labels, numbers, and units.
-- Preserve equations and symbols as much as possible.
-- If there are geometry labels, include them.
-- Preserve line breaks when helpful.
-- If no text is readable, say only: No readable text.
-"""
-
-    out = ask_vision_gemini(prompt, image_bytes, filename)
-
-    if not out:
-        return ""
-
-    low = out.lower()
-
-    if "no readable text" in low or "no text" in low:
-        return ""
-
-    return out[:5000]
 
 
 def ocr_space_image(image_bytes):
@@ -2192,10 +2332,73 @@ def ocr_space_image(image_bytes):
 
 def ocr_image(image_bytes, filename):
     return (
-        ocr_paddle_image(image_bytes, filename)
-        or ocr_gemini_image(image_bytes, filename)
+        ocr_mistral_image(image_bytes, filename)
+        or ocr_paddle_image(image_bytes, filename)
         or ocr_space_image(image_bytes)
     )
+
+
+def ask_vision_gemini(prompt, image_bytes, filename):
+    if not GEMINI_KEYS:
+        return None
+
+    b64 = base64.b64encode(image_bytes).decode()
+    mime = image_mime(filename)
+
+    for model in gemini_models():
+        for key in shuffled(GEMINI_KEYS):
+            for _ in range(MAX_RETRIES):
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+
+                    payload = {
+                        "contents": [
+                            {
+                                "parts": [
+                                    {
+                                        "text": prompt or "Analyze this image clearly."
+                                    },
+                                    {
+                                        "inline_data": {
+                                            "mime_type": mime,
+                                            "data": b64
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        "generationConfig": {
+                            "temperature": 0.4,
+                            "maxOutputTokens": 2048
+                        }
+                    }
+
+                    r = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
+
+                    if r.status_code == 200:
+                        data = r.json()
+                        candidates = data.get("candidates", [])
+
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            texts = []
+
+                            for p in parts:
+                                if p.get("text"):
+                                    texts.append(p["text"])
+
+                            if texts:
+                                return "\n".join(texts).strip()
+
+                    if r.status_code in [400, 401, 403, 404, 429]:
+                        break
+
+                except Exception:
+                    pass
+
+                time.sleep(0.35)
+
+    return None
 
 
 def cloudflare_vision(prompt, image_bytes):
@@ -2330,8 +2533,8 @@ def hf_image_caption(image_bytes):
 
 def vision_image(prompt, image_bytes, filename):
     return (
-        cloudflare_vision(prompt, image_bytes)
-        or ask_vision_gemini(prompt, image_bytes, filename)
+        ask_vision_gemini(prompt, image_bytes, filename)
+        or cloudflare_vision(prompt, image_bytes)
         or ask_vision_groq(prompt, image_bytes, filename)
         or hf_image_caption(image_bytes)
     )
@@ -2608,9 +2811,9 @@ Return only the title.
     ]
 
     out = (
-        ask_groq(messages, mode="instant")
+        ask_gemini_chat(messages)
+        or ask_groq(messages, mode="instant")
         or ask_cerebras(messages)
-        or ask_gemini_text(prompt)
         or ""
     )
 
@@ -2676,7 +2879,7 @@ def chat():
                 if not reply:
                     reply = (
                         "Aku menerima gambarnya, tapi Vision/OCR AI belum berhasil membaca gambar ini. "
-                        "Pastikan GEMINI_API_KEY, CLOUDFLARE_API_TOKEN, atau GROQ_API_KEY aktif."
+                        "Pastikan GEMINI_API_KEY, MISTRAL_API_KEY, CLOUDFLARE_API_TOKEN, atau GROQ_API_KEY aktif."
                     )
 
                 push(cid, "user", "[image] " + f.filename + (" " + msg if msg else ""))
@@ -2948,10 +3151,14 @@ Answer in the user's language.
                 remember_action(cid, "chat", msg)
                 messages = build_messages(cid, msg, mode)
 
-            stream = stream_groq(messages, mode)
+            stream_pack = (
+                stream_gemini(messages, mode)
+                or stream_groq(messages, mode)
+            )
+
             ensure_min_thinking_time(mode, started)
 
-            if stream is None:
+            if stream_pack is None:
                 fallback = ask_ai(cid, msg, mode)
 
                 yield "data: " + json.dumps({
@@ -2962,38 +3169,17 @@ Answer in the user's language.
                 full_reply += fallback
                 return
 
-            for line in stream.iter_lines():
-                if not line:
-                    continue
+            for token in iter_stream_tokens(stream_pack):
+                if token:
+                    if "NeuroMV_Recent" in token or "Recent NeuroMV actions" in token:
+                        continue
 
-                raw = line.decode("utf-8")
+                    full_reply += token
 
-                if not raw.startswith("data: "):
-                    continue
-
-                payload = raw.replace("data: ", "").strip()
-
-                if payload == "[DONE]":
-                    break
-
-                try:
-                    data = json.loads(payload)
-                    delta = data["choices"][0].get("delta", {})
-                    token = delta.get("content", "")
-
-                    if token:
-                        if "NeuroMV_Recent" in token or "Recent NeuroMV actions" in token:
-                            continue
-
-                        full_reply += token
-
-                        yield "data: " + json.dumps({
-                            "type": "token",
-                            "text": token
-                        }) + "\n\n"
-
-                except Exception:
-                    pass
+                    yield "data: " + json.dumps({
+                        "type": "token",
+                        "text": token
+                    }) + "\n\n"
 
             if action == "search":
                 try:
