@@ -42,7 +42,7 @@ except Exception:
 # APP
 # ==================================================
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "neuromv-anti-counter-final-secret")
+app.secret_key = os.getenv("SECRET_KEY", "neuromv-ultra-backend-memory-secret")
 
 # ==================================================
 # CONFIG
@@ -54,16 +54,88 @@ FILE_LIMIT = int(os.getenv("FILE_LIMIT", "3"))
 MEMORY_SIZE = int(os.getenv("MEMORY_SIZE", "120"))
 LONG_MEMORY_KEEP = int(os.getenv("LONG_MEMORY_KEEP", "5000"))
 
+CHAT_DB_FILE = os.getenv("CHAT_DB_FILE", "chat_db.json")
 LONG_MEMORY_FILE = os.getenv("LONG_MEMORY_FILE", "memory_db.json")
 PROFILE_FILE = os.getenv("PROFILE_FILE", "profile_db.json")
 ACTION_MEMORY_FILE = os.getenv("ACTION_MEMORY_FILE", "action_memory.json")
 DAILY_LIMIT_FILE = os.getenv("DAILY_LIMIT_FILE", "daily_limit_db.json")
+DEPLOY_MARKER_FILE = os.getenv("DEPLOY_MARKER_FILE", "deploy_marker.json")
 
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "25"))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "10"))
+THINKING_MIN_DELAY = float(os.getenv("THINKING_MIN_DELAY", "10.0"))
 
 FORCE_SEARCH = os.getenv("FORCE_SEARCH", "true").lower() != "false"
-THINKING_MIN_DELAY = float(os.getenv("THINKING_MIN_DELAY", "10"))
+RESET_MEMORY_ON_DEPLOY = os.getenv("RESET_MEMORY_ON_DEPLOY", "true").lower() != "false"
+
+# ==================================================
+# JSON HELPERS
+# ==================================================
+def read_json(path, default):
+    try:
+        if not os.path.exists(path):
+            return default
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def write_json(path, data):
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+
+def safe_remove(path):
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+# ==================================================
+# DEPLOY RESET
+# ==================================================
+def current_deploy_id():
+    return (
+        os.getenv("RENDER_GIT_COMMIT")
+        or os.getenv("VERCEL_GIT_COMMIT_SHA")
+        or os.getenv("RAILWAY_GIT_COMMIT_SHA")
+        or os.getenv("FLY_ALLOC_ID")
+        or os.getenv("DEPLOY_ID")
+        or str(int(os.path.getmtime(__file__)))
+    )
+
+
+def reset_memory_on_new_deploy():
+    if not RESET_MEMORY_ON_DEPLOY:
+        return
+
+    deploy_id = current_deploy_id()
+    marker = read_json(DEPLOY_MARKER_FILE, {})
+
+    if marker.get("deploy_id") != deploy_id:
+        safe_remove(CHAT_DB_FILE)
+        safe_remove(LONG_MEMORY_FILE)
+        safe_remove(PROFILE_FILE)
+        safe_remove(ACTION_MEMORY_FILE)
+
+        write_json(DEPLOY_MARKER_FILE, {
+            "deploy_id": deploy_id,
+            "reset_time": int(time.time())
+        })
+
+
+reset_memory_on_new_deploy()
 
 # ==================================================
 # API KEYS
@@ -109,14 +181,18 @@ CLOUDFLARE_API_TOKENS = split_keys("CLOUDFLARE_API_TOKENS") or split_keys("CLOUD
 # ==================================================
 FEATURE_MANIFEST = """
 NeuroMV current capabilities:
+- Backend-first chat history
+- Backend memory per chat
+- Delete chat deletes backend messages and memory for that chat
+- Memory and chat DB reset on new deploy
 - Normal AI chat
 - Cerebras as main response brain
 - Groq as second fallback
 - Gemini as final fallback
 - Instant mode and Thinking mode
 - Streaming chat token by token
+- Stop generation from frontend
 - Per-device/IP-family daily limit
-- Long-term memory and action memory
 - Smart search routing
 - Live web search with Tavily, Brave, Serper, SerpAPI, Google CSE, DuckDuckGo, Bing RSS, Wikipedia
 - URL reader
@@ -143,7 +219,6 @@ Core behavior:
 - If user is casual, answer smart-casual.
 - If user is formal, answer formally.
 - If user is tired/frustrated, answer clearly and supportively.
-- Do not force hype style every time.
 - Use emojis lightly only when helpful.
 - Never give empty generic filler.
 
@@ -161,10 +236,16 @@ Accuracy:
 - Current leaders, prices, news, dates, releases, schedules, and status need search context when available.
 
 Memory:
-- Use saved memory only when relevant.
+- Use saved backend memory only when relevant.
 - If user asks what was discussed earlier, answer from memory.
 - Do not search web for memory questions.
 - Never output labels like NeuroMV_Recent, Recent NeuroMV actions, or Relevant cross-chat memory.
+
+Safety:
+- Refuse harmful evasion, hacking, phishing, malware, adult sexual content, or instructions to bypass restrictions.
+- Allow defensive, parental, educational, or troubleshooting questions when framed as protection/prevention.
+- Do not explain how to bypass parental controls.
+- You may explain why a child might bypass parental controls and give prevention checklist without bypass steps.
 
 Coding:
 - Give copy-paste-ready code when asked.
@@ -198,27 +279,7 @@ You are NeuroMV Thinking Brain.
 """
 
 # ==================================================
-# JSON HELPERS
-# ==================================================
-def read_json(path, default):
-    try:
-        if not os.path.exists(path):
-            return default
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
-
-
-def write_json(path, data):
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
-
-# ==================================================
-# REQUEST / IDENTITY / LIMIT ANTI COUNTER
+# REQUEST / IDENTITY / LIMIT
 # ==================================================
 def normalize_mode(mode):
     mode = str(mode or "thinking").strip().lower()
@@ -228,10 +289,7 @@ def normalize_mode(mode):
 def ensure_min_thinking_time(mode, started_at):
     if mode != "thinking":
         return
-
-    elapsed = time.time() - started_at
-    remain = THINKING_MIN_DELAY - elapsed
-
+    remain = THINKING_MIN_DELAY - (time.time() - started_at)
     if remain > 0:
         time.sleep(remain)
 
@@ -250,14 +308,11 @@ def client_ip():
 def ip_prefix(ip):
     try:
         obj = ipaddress.ip_address(ip)
-
         if obj.version == 4:
             parts = ip.split(".")
             return ".".join(parts[:3]) + ".0/24"
-
         exploded = obj.exploded.split(":")
         return ":".join(exploded[:4]) + "::/64"
-
     except Exception:
         return ip[:24] or "unknown"
 
@@ -281,21 +336,14 @@ def get_city_hint():
 
 def get_device_meta():
     raw = request.form.get("device_meta") or request.headers.get("X-NeuroMV-Device-Meta") or "{}"
-
     try:
         data = json.loads(raw)
-
         if not isinstance(data, dict):
             return {}
-
         safe = {}
-
         for k in ["tz", "lang", "platform", "screen", "memory", "touch"]:
-            v = str(data.get(k, ""))[:120]
-            safe[k] = v
-
+            safe[k] = str(data.get(k, ""))[:120]
         return safe
-
     except Exception:
         return {}
 
@@ -313,30 +361,22 @@ def identity_keys():
     city = get_city_hint()
     meta = get_device_meta()
 
-    tz = meta.get("tz", "")
-    lang = meta.get("lang", "")
-    platform = meta.get("platform", "")
-    screen = meta.get("screen", "")
-
-    keys = []
-
-    if device_id:
-        keys.append("device:" + hash_id(device_id))
-
-    if prefix:
-        keys.append("ip_prefix:" + hash_id(prefix + "|" + country))
-
     family_raw = "|".join([
         prefix,
         country,
         city,
         ua,
-        tz,
-        lang,
-        platform,
-        screen
+        meta.get("tz", ""),
+        meta.get("lang", ""),
+        meta.get("platform", ""),
+        meta.get("screen", "")
     ])
 
+    keys = []
+    if device_id:
+        keys.append("device:" + hash_id(device_id))
+    if prefix:
+        keys.append("ip_prefix:" + hash_id(prefix + "|" + country))
     keys.append("family:" + hash_id(family_raw))
 
     if not keys:
@@ -346,8 +386,7 @@ def identity_keys():
 
 
 def uid():
-    keys = identity_keys()
-    primary = keys[0]
+    primary = identity_keys()[0]
     session["neuromv_user_id"] = primary
     session.modified = True
     return primary
@@ -375,11 +414,7 @@ def limit_db_bucket():
 
     for k in keys:
         if k not in db[day]:
-            db[day][k] = {
-                "chat": 0,
-                "image": 0,
-                "file": 0
-            }
+            db[day][k] = {"chat": 0, "image": 0, "file": 0}
 
     return db, day, keys
 
@@ -391,10 +426,8 @@ def save_limit_db(db):
 def limit_used(kind):
     db, day, keys = limit_db_bucket()
     used = 0
-
     for k in keys:
         used = max(used, int(db[day][k].get(kind, 0)))
-
     return used
 
 
@@ -421,10 +454,8 @@ def over_limit(kind):
 
 def add_limit(kind):
     db, day, keys = limit_db_bucket()
-
     for k in keys:
         db[day][k][kind] = int(db[day][k].get(kind, 0)) + 1
-
     save_limit_db(db)
 
 
@@ -435,26 +466,11 @@ def ensure_daily():
 
 def limit_reply(kind):
     if kind == "chat":
-        return (
-            f"You've reached your daily chat limit. "
-            f"You can send up to {DAILY_LIMIT} messages per day. "
-            "Please try again tomorrow."
-        )
-
+        return f"You've reached your daily chat limit. You can send up to {DAILY_LIMIT} messages per day. Please try again tomorrow."
     if kind == "image":
-        return (
-            f"You've reached your daily image generation limit. "
-            f"You can generate up to {IMAGE_LIMIT} images per day. "
-            "Please try again tomorrow."
-        )
-
+        return f"You've reached your daily image generation limit. You can generate up to {IMAGE_LIMIT} images per day. Please try again tomorrow."
     if kind == "file":
-        return (
-            f"You've reached your daily upload limit. "
-            f"You can upload up to {FILE_LIMIT} files per day. "
-            "Please try again tomorrow."
-        )
-
+        return f"You've reached your daily upload limit. You can upload up to {FILE_LIMIT} files per day. Please try again tomorrow."
     return "You've reached your daily limit. Please try again tomorrow."
 
 
@@ -466,21 +482,363 @@ def limit_json(kind):
     })
 
 # ==================================================
-# MEMORY
+# CHAT DATABASE BACKEND
+# ==================================================
+def load_chat_db():
+    return read_json(CHAT_DB_FILE, {})
+
+
+def save_chat_db(db):
+    write_json(CHAT_DB_FILE, db)
+
+
+def normalize_user_chat_bucket(db, u):
+    if u not in db:
+        db[u] = {
+            "chats": {},
+            "order": []
+        }
+        return db[u]
+
+    if not isinstance(db[u], dict):
+        db[u] = {"chats": {}, "order": []}
+
+    db[u].setdefault("chats", {})
+    db[u].setdefault("order", [])
+
+    for cid in list(db[u]["chats"].keys()):
+        if cid not in db[u]["order"]:
+            db[u]["order"].append(cid)
+
+    db[u]["order"] = [cid for cid in db[u]["order"] if cid in db[u]["chats"]]
+
+    return db[u]
+
+
+def new_chat_id():
+    return "c" + str(int(time.time() * 1000)) + str(random.randint(10000, 99999))
+
+
+def create_backend_chat(title="New Chat", private=False):
+    db = load_chat_db()
+    u = uid()
+    bucket = normalize_user_chat_bucket(db, u)
+
+    cid = new_chat_id()
+    now = int(time.time())
+
+    bucket["chats"][cid] = {
+        "id": cid,
+        "title": str(title or "New Chat")[:80],
+        "private": bool(private),
+        "messages": [],
+        "created": now,
+        "updated": now,
+        "auto_title_done": False
+    }
+
+    bucket["order"] = [cid] + [x for x in bucket["order"] if x != cid]
+    save_chat_db(db)
+
+    return bucket["chats"][cid]
+
+
+def get_backend_chat(cid):
+    db = load_chat_db()
+    u = uid()
+    bucket = normalize_user_chat_bucket(db, u)
+    return bucket["chats"].get(cid)
+
+
+def ensure_backend_chat(cid=None, title="New Chat", private=False):
+    db = load_chat_db()
+    u = uid()
+    bucket = normalize_user_chat_bucket(db, u)
+
+    if cid and cid in bucket["chats"]:
+        return bucket["chats"][cid]
+
+    if not cid:
+        cid = new_chat_id()
+
+    now = int(time.time())
+
+    bucket["chats"][cid] = {
+        "id": cid,
+        "title": str(title or "New Chat")[:80],
+        "private": bool(private),
+        "messages": [],
+        "created": now,
+        "updated": now,
+        "auto_title_done": False
+    }
+
+    bucket["order"] = [cid] + [x for x in bucket["order"] if x != cid]
+    save_chat_db(db)
+    return bucket["chats"][cid]
+
+
+def touch_backend_chat(cid):
+    db = load_chat_db()
+    u = uid()
+    bucket = normalize_user_chat_bucket(db, u)
+
+    if cid in bucket["chats"]:
+        bucket["chats"][cid]["updated"] = int(time.time())
+        bucket["order"] = [cid] + [x for x in bucket["order"] if x != cid]
+        save_chat_db(db)
+
+
+def list_backend_chats(private=False):
+    db = load_chat_db()
+    u = uid()
+    bucket = normalize_user_chat_bucket(db, u)
+
+    out = []
+
+    for cid in bucket["order"]:
+        c = bucket["chats"].get(cid)
+        if not c:
+            continue
+        if bool(c.get("private")) != bool(private):
+            continue
+
+        out.append({
+            "id": c["id"],
+            "title": c.get("title", "New Chat"),
+            "private": bool(c.get("private")),
+            "created": c.get("created", 0),
+            "updated": c.get("updated", 0),
+            "message_count": len(c.get("messages", []))
+        })
+
+    return out
+
+
+def backend_add_message(cid, role, text="", msg_type="text", meta=None, url=None, save_memory=True):
+    db = load_chat_db()
+    u = uid()
+    bucket = normalize_user_chat_bucket(db, u)
+    chat = bucket["chats"].get(cid)
+
+    if not chat:
+        chat = ensure_backend_chat(cid)
+
+    now = int(time.time())
+
+    item = {
+        "id": "m" + str(int(time.time() * 1000)) + str(random.randint(1000, 9999)),
+        "role": role,
+        "text": str(text or "")[:20000],
+        "type": msg_type,
+        "time": now
+    }
+
+    if meta is not None:
+        item["meta"] = meta
+
+    if url is not None:
+        item["url"] = url
+
+    chat.setdefault("messages", []).append(item)
+    chat["messages"] = chat["messages"][-LONG_MEMORY_KEEP:]
+    chat["updated"] = now
+    bucket["order"] = [cid] + [x for x in bucket["order"] if x != cid]
+
+    save_chat_db(db)
+
+    if save_memory:
+        push_memory_only(cid, role, text)
+
+    return item
+
+
+def update_backend_title(cid, title):
+    db = load_chat_db()
+    u = uid()
+    bucket = normalize_user_chat_bucket(db, u)
+
+    if cid in bucket["chats"]:
+        bucket["chats"][cid]["title"] = str(title or "New Chat")[:80]
+        bucket["chats"][cid]["updated"] = int(time.time())
+        save_chat_db(db)
+        return True
+
+    return False
+
+
+def set_backend_private(cid, private=True):
+    db = load_chat_db()
+    u = uid()
+    bucket = normalize_user_chat_bucket(db, u)
+
+    if cid in bucket["chats"]:
+        bucket["chats"][cid]["private"] = bool(private)
+        bucket["chats"][cid]["updated"] = int(time.time())
+        bucket["order"] = [cid] + [x for x in bucket["order"] if x != cid]
+        save_chat_db(db)
+        return True
+
+    return False
+
+
+def backend_chat_messages(cid):
+    chat = get_backend_chat(cid)
+    if not chat:
+        return []
+    return chat.get("messages", [])
+
+
+def rebuild_memory_from_backend():
+    db = load_chat_db()
+    u = uid()
+    bucket = normalize_user_chat_bucket(db, u)
+
+    mem_db = load_long()
+    mem_db[u] = {"global": [], "chats": {}}
+
+    for cid, chat in bucket["chats"].items():
+        arr = []
+        for m in chat.get("messages", []):
+            if m.get("type") not in ["text", "image"]:
+                continue
+
+            text = m.get("text") or ""
+            if not text and m.get("type") == "image":
+                text = "[image generated] " + str(m.get("url", ""))
+
+            if not text:
+                continue
+
+            item = {
+                "role": "bot" if m.get("role") == "bot" else "user",
+                "text": str(text)[:5000],
+                "time": int(m.get("time", time.time())),
+                "chat_id": cid
+            }
+            arr.append(item)
+            mem_db[u]["global"].append(item)
+
+        mem_db[u]["chats"][cid] = arr[-LONG_MEMORY_KEEP:]
+
+    mem_db[u]["global"] = mem_db[u]["global"][-LONG_MEMORY_KEEP:]
+    save_long(mem_db)
+
+
+def truncate_backend_chat(cid, index):
+    db = load_chat_db()
+    u = uid()
+    bucket = normalize_user_chat_bucket(db, u)
+
+    try:
+        index = int(index)
+    except Exception:
+        return False
+
+    if cid in bucket["chats"]:
+        msgs = bucket["chats"][cid].get("messages", [])
+        bucket["chats"][cid]["messages"] = msgs[:index + 1]
+        bucket["chats"][cid]["updated"] = int(time.time())
+        save_chat_db(db)
+        rebuild_memory_from_backend()
+        return True
+
+    return False
+
+
+def update_backend_user_message(cid, index, text):
+    db = load_chat_db()
+    u = uid()
+    bucket = normalize_user_chat_bucket(db, u)
+
+    try:
+        index = int(index)
+    except Exception:
+        return False
+
+    if cid not in bucket["chats"]:
+        return False
+
+    msgs = bucket["chats"][cid].get("messages", [])
+
+    if index < 0 or index >= len(msgs):
+        return False
+
+    if msgs[index].get("role") != "user":
+        return False
+
+    msgs[index]["text"] = str(text or "")[:20000]
+    msgs[index]["time"] = int(time.time())
+    bucket["chats"][cid]["messages"] = msgs
+    bucket["chats"][cid]["updated"] = int(time.time())
+
+    save_chat_db(db)
+    rebuild_memory_from_backend()
+
+    return True
+
+
+def delete_backend_chat(cid):
+    db = load_chat_db()
+    u = uid()
+    bucket = normalize_user_chat_bucket(db, u)
+
+    if cid in bucket["chats"]:
+        bucket["chats"].pop(cid, None)
+        bucket["order"] = [x for x in bucket["order"] if x != cid]
+        save_chat_db(db)
+
+    if "mem" in session:
+        session["mem"].pop(cid, None)
+        session.modified = True
+
+    actions = read_json(ACTION_MEMORY_FILE, {})
+    if u in actions:
+        actions[u] = [x for x in actions[u] if str(x.get("chat_id", "")) != str(cid)]
+        write_json(ACTION_MEMORY_FILE, actions)
+
+    rebuild_memory_from_backend()
+
+
+def delete_all_backend_data_for_user():
+    u = uid()
+
+    chat_db = load_chat_db()
+    if u in chat_db:
+        chat_db.pop(u, None)
+        save_chat_db(chat_db)
+
+    mem_db = load_long()
+    if u in mem_db:
+        mem_db.pop(u, None)
+        save_long(mem_db)
+
+    profile_db = read_json(PROFILE_FILE, {})
+    if u in profile_db:
+        profile_db.pop(u, None)
+        write_json(PROFILE_FILE, profile_db)
+
+    actions = read_json(ACTION_MEMORY_FILE, {})
+    if u in actions:
+        actions.pop(u, None)
+        write_json(ACTION_MEMORY_FILE, actions)
+
+    session["mem"] = {}
+    session.modified = True
+
+# ==================================================
+# MEMORY SYSTEM
 # ==================================================
 def mem():
     if "mem" not in session:
         session["mem"] = {}
-
     return session["mem"]
 
 
 def get_mem(cid):
     m = mem()
-
     if cid not in m:
         m[cid] = []
-
     return m[cid]
 
 
@@ -494,39 +852,18 @@ def save_long(data):
 
 def normalize_memory_db(db, u):
     if u not in db:
-        db[u] = {
-            "global": [],
-            "chats": {}
-        }
+        db[u] = {"global": [], "chats": {}}
         return db[u]
 
     if isinstance(db[u], dict) and "global" in db[u] and "chats" in db[u]:
         return db[u]
 
-    old = db[u]
-    new = {
-        "global": [],
-        "chats": {}
-    }
-
-    if isinstance(old, dict):
-        for cid, arr in old.items():
-            if isinstance(arr, list):
-                new["chats"][cid] = arr
-
-                for item in arr:
-                    if isinstance(item, dict):
-                        copy = dict(item)
-                        copy["chat_id"] = cid
-                        new["global"].append(copy)
-
-    db[u] = new
+    db[u] = {"global": [], "chats": {}}
     return db[u]
 
 
 def is_identity_or_noise_text(text):
     low = str(text or "").lower().strip()
-
     noise = [
         "who are you", "siapa kamu", "kamu siapa",
         "what is your name", "apa namamu", "namamu siapa",
@@ -535,51 +872,15 @@ def is_identity_or_noise_text(text):
         "neuromv_recent", "recent neuromv actions",
         "relevant cross-chat memory", "user interests:"
     ]
-
     return any(x in low for x in noise)
 
 
-def clean_internal_leaks(text):
-    text = str(text or "")
-
-    text = re.sub(r"(?im)^.*NeuroMV_Recent\s*:.*$", "", text)
-    text = re.sub(r"(?im)^.*Recent NeuroMV actions\s*:.*$", "", text)
-    text = re.sub(r"(?im)^.*Relevant cross-chat memory\s*:.*$", "", text)
-    text = re.sub(r"(?im)^.*User interests\s*:.*$", "", text)
-    text = re.sub(r"(?im)^.*Dynamic style instruction\s*:.*$", "", text)
-    text = re.sub(r"\n{3,}", "\n\n", text).strip()
-
-    return text
-
-
-def clean_html_style_leaks(text):
-    text = str(text or "")
-
-    def heading_replacer(match):
-        inner = match.group(2)
-        inner = re.sub(r"<[^>]+>", "", inner)
-        inner = html_module.unescape(inner).strip()
-        return "\n## " + inner + "\n" if inner else ""
-
-    text = re.sub(
-        r"(?is)<\s*h([1-6])[^>]*>(.*?)<\s*/\s*h\1\s*>",
-        heading_replacer,
-        text
-    )
-
-    text = re.sub(r"(?is)<\s*span[^>]*>(.*?)<\s*/\s*span\s*>", r"\1", text)
-    text = re.sub(r"(?is)<\s*br\s*/?\s*>", "\n", text)
-    text = re.sub(r"(?is)<\s*/\s*p\s*>", "\n\n", text)
-    text = re.sub(r"(?is)<[^>]+>", "", text)
-
-    text = html_module.unescape(text)
-    text = re.sub(r"\n{3,}", "\n\n", text).strip()
-
-    return text
-
-
-def push(cid, role, text):
+def push_memory_only(cid, role, text):
     text = str(text or "")[:5000]
+
+    if not text:
+        return
+
     now = int(time.time())
 
     item = {
@@ -598,9 +899,7 @@ def push(cid, role, text):
     u = uid()
     bucket = normalize_memory_db(db, u)
 
-    if cid not in bucket["chats"]:
-        bucket["chats"][cid] = []
-
+    bucket["chats"].setdefault(cid, [])
     bucket["chats"][cid].append(item)
     bucket["chats"][cid] = bucket["chats"][cid][-LONG_MEMORY_KEEP:]
 
@@ -630,10 +929,8 @@ def memory_summary_text(limit=80):
 
     for x in items:
         txt_raw = str(x.get("text", ""))
-
         if is_identity_or_noise_text(txt_raw):
             continue
-
         role = "assistant" if x.get("role") == "bot" else "user"
         lines.append(f"{role}: {txt_raw[:800]}")
 
@@ -656,9 +953,7 @@ def remember_action(cid, action, detail=""):
 
     db = load_actions()
     u = uid()
-
-    if u not in db:
-        db[u] = []
+    db.setdefault(u, [])
 
     db[u].append({
         "chat_id": cid,
@@ -682,10 +977,8 @@ def recent_actions(limit=30):
 
     for x in db[u][-limit:]:
         detail = str(x.get("detail", ""))
-
         if is_identity_or_noise_text(detail):
             continue
-
         lines.append(f"- {x.get('action')}: {detail}")
 
     return "\n".join(lines)
@@ -696,10 +989,7 @@ def get_profile():
     u = uid()
 
     if u not in db:
-        db[u] = {
-            "likes": [],
-            "tone": ""
-        }
+        db[u] = {"likes": [], "tone": ""}
         write_json(PROFILE_FILE, db)
 
     return db[u]
@@ -740,7 +1030,7 @@ def learn_interest(msg):
         save_profile(p)
 
 # ==================================================
-# INTENT GUARDS / SAFETY
+# SAFETY / INTENT
 # ==================================================
 MEMORY_RECALL_TRIGGERS = [
     "masih ingat", "ingat tadi", "ingat ga", "ingat gak", "barusan",
@@ -758,29 +1048,22 @@ def wants_memory_recall(msg):
 
 def is_self_identity_question(msg):
     low = str(msg or "").lower().strip()
-
     patterns = [
         r"\bsiapa\s+(pencipta|pembuat|creator).*(kamu|mu|neuromv|neuro mv)",
         r"\bsiapa\s+(yang\s+)?(membuat|menciptakan)\s+(kamu|neuromv|neuro mv)",
-        r"\bpenciptamu\b",
-        r"\bpembuatmu\b",
+        r"\bpenciptamu\b", r"\bpembuatmu\b",
         r"\bcreator\s+(mu|kamu|you|neuromv)\b",
         r"\bwho\s+(created|made)\s+(you|neuromv)\b",
         r"\bwho\s+is\s+your\s+creator\b",
-        r"\bkamu\s+siapa\b",
-        r"\bsiapa\s+kamu\b",
-        r"\bapa\s+namamu\b",
-        r"\bnamamu\s+siapa\b",
-        r"\bwhat\s+is\s+your\s+name\b",
-        r"\bwho\s+are\s+you\b"
+        r"\bkamu\s+siapa\b", r"\bsiapa\s+kamu\b",
+        r"\bapa\s+namamu\b", r"\bnamamu\s+siapa\b",
+        r"\bwhat\s+is\s+your\s+name\b", r"\bwho\s+are\s+you\b"
     ]
-
     return any(re.search(p, low) for p in patterns)
 
 
 def is_code_edit_request(msg):
     low = str(msg or "").lower()
-
     code_terms = [
         "app.py", "script.js", "style.css", "index.html",
         "html", "css", "javascript", "python", "flask",
@@ -791,13 +1074,11 @@ def is_code_edit_request(msg):
         "edit file", "copy paste", "copy-paste",
         "bug", "error", "traceback", "syntaxerror", "indentationerror", "module not found"
     ]
-
     action_terms = [
         "edit", "fix", "benerin", "perbaiki", "tambahin",
         "tambahkan", "ganti", "replace", "patch",
         "generate", "buat", "bikin", "full"
     ]
-
     return any(x in low for x in code_terms) and any(x in low for x in action_terms)
 
 
@@ -809,7 +1090,6 @@ Dynamic style:
 - Patch/tutorial structure is allowed.
 - Give practical copy-paste-ready help.
 """
-
     return """
 Dynamic style:
 - User is not necessarily asking for code.
@@ -840,6 +1120,36 @@ def clean_wrong_patch_style(reply, msg):
         reply = re.sub(pattern, "", reply)
 
     return re.sub(r"\n{3,}", "\n\n", reply).strip()
+
+
+def clean_internal_leaks(text):
+    text = str(text or "")
+    text = re.sub(r"(?im)^.*NeuroMV_Recent\s*:.*$", "", text)
+    text = re.sub(r"(?im)^.*Recent NeuroMV actions\s*:.*$", "", text)
+    text = re.sub(r"(?im)^.*Relevant cross-chat memory\s*:.*$", "", text)
+    text = re.sub(r"(?im)^.*User interests\s*:.*$", "", text)
+    text = re.sub(r"(?im)^.*Dynamic style instruction\s*:.*$", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
+
+
+def clean_html_style_leaks(text):
+    text = str(text or "")
+
+    def heading_replacer(match):
+        inner = match.group(2)
+        inner = re.sub(r"<[^>]+>", "", inner)
+        inner = html_module.unescape(inner).strip()
+        return "\n## " + inner + "\n" if inner else ""
+
+    text = re.sub(r"(?is)<\s*h([1-6])[^>]*>(.*?)<\s*/\s*h\1\s*>", heading_replacer, text)
+    text = re.sub(r"(?is)<\s*span[^>]*>(.*?)<\s*/\s*span\s*>", r"\1", text)
+    text = re.sub(r"(?is)<\s*br\s*/?\s*>", "\n", text)
+    text = re.sub(r"(?is)<\s*/\s*p\s*>", "\n\n", text)
+    text = re.sub(r"(?is)<[^>]+>", "", text)
+    text = html_module.unescape(text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
 
 
 LEET_MAP = str.maketrans({
@@ -875,14 +1185,51 @@ def normalize_text(text):
     return text
 
 
+def safety_intent(msg):
+    low = str(msg or "").lower()
+
+    evasion_terms = [
+        "bypass parental control",
+        "bypass parental controls",
+        "disable parental control",
+        "disable parental controls",
+        "remove parental control",
+        "remove parental controls",
+        "matikan parental control",
+        "lewati parental control",
+        "bypass family link",
+        "bypass screen time",
+        "bypass restrictions",
+        "cara bypass parental",
+        "how to bypass parental"
+    ]
+
+    defensive_terms = [
+        "kenapa", "mengapa", "why", "how could",
+        "anak aku", "anak saya", "my child", "my kid",
+        "mencegah", "prevent", "protect", "secure",
+        "amankan", "melindungi", "fix", "troubleshoot",
+        "cara mencegah", "how to prevent"
+    ]
+
+    if any(x in low for x in evasion_terms):
+        if any(x in low for x in defensive_terms):
+            return "allow_defensive"
+        return "block_evasion"
+
+    return "allow"
+
+
 def blocked(msg):
+    if safety_intent(msg) == "block_evasion":
+        return True
+
     raw = str(msg or "").lower()
     norm = normalize_text(msg)
     collapsed = "".join(re.findall(r"[a-zA-Z]", raw))
 
     for word in HARD_BLOCK_WORDS:
         w = normalize_text(word)
-
         if w in norm or w in collapsed:
             return True
 
@@ -891,6 +1238,15 @@ def blocked(msg):
             return True
 
     return False
+
+
+def refusal_reply(msg):
+    if safety_intent(msg) == "block_evasion":
+        return (
+            "I can’t help with bypassing parental controls or access restrictions. "
+            "If you need access, please talk with your parent, guardian, or the device owner."
+        )
+    return "I can't help with that request."
 
 # ==================================================
 # IMAGE GENERATION
@@ -909,10 +1265,7 @@ def want_image(msg):
 def make_image(prompt):
     style = "masterpiece, best quality, ultra detailed, cinematic lighting, sharp focus, "
     safe = quote(style + prompt)
-
-    return {
-        "url": f"https://image.pollinations.ai/prompt/{safe}"
-    }
+    return {"url": f"https://image.pollinations.ai/prompt/{safe}"}
 
 # ==================================================
 # FILE READER
@@ -924,17 +1277,13 @@ def read_txt(data):
 def read_pdf(data):
     if not PyPDF2:
         return "PDF module missing. Install PyPDF2."
-
     try:
         reader = PyPDF2.PdfReader(io.BytesIO(data))
         out = []
-
         for p in reader.pages[:12]:
             out.append(p.extract_text() or "")
-
         text = "\n".join(out).strip()
         return text[:7000] if text else "PDF has no readable text."
-
     except Exception:
         return "Failed reading PDF."
 
@@ -942,12 +1291,10 @@ def read_pdf(data):
 def read_docx(data):
     if not docx:
         return "DOCX module missing. Install python-docx."
-
     try:
         d = docx.Document(io.BytesIO(data))
         text = "\n".join([x.text for x in d.paragraphs])
         return text[:7000] if text.strip() else "DOCX is empty."
-
     except Exception:
         return "Failed reading DOCX."
 
@@ -957,7 +1304,6 @@ def read_csv_file(data):
         txt = data.decode("utf-8", errors="ignore")
         rows = list(csv.reader(io.StringIO(txt)))
         return "\n".join([" | ".join(r) for r in rows[:40]])[:7000]
-
     except Exception:
         return "Failed reading CSV."
 
@@ -966,26 +1312,20 @@ def read_zip(data):
     try:
         z = zipfile.ZipFile(io.BytesIO(data))
         return "ZIP Contents:\n" + "\n".join(z.namelist()[:80])
-
     except Exception:
         return "Failed reading ZIP."
 
 
 def smart_read_file(filename, data):
     low = filename.lower()
-
     if low.endswith(".pdf"):
         return read_pdf(data)
-
     if low.endswith(".docx"):
         return read_docx(data)
-
     if low.endswith(".csv"):
         return read_csv_file(data)
-
     if low.endswith(".zip"):
         return read_zip(data)
-
     return read_txt(data)
 
 # ==================================================
@@ -993,30 +1333,24 @@ def smart_read_file(filename, data):
 # ==================================================
 def extract_url(text):
     m = re.search(r"https?://[^\s]+", text or "")
-
     if not m:
         return None
-
     return m.group(0).strip().rstrip(".,)")
 
 
 def html_to_text(html):
     if BeautifulSoup:
         soup = BeautifulSoup(html, "html.parser")
-
         for tag in soup(["script", "style", "noscript", "svg"]):
             tag.extract()
-
         title = soup.title.get_text(" ", strip=True) if soup.title else ""
         body = soup.get_text(" ", strip=True)
         body = re.sub(r"\s+", " ", body)
-
         return (f"Title: {title}\n\n{body}")[:8000]
 
     html = re.sub(r"<script[\s\S]*?</script>", " ", html, flags=re.I)
     html = re.sub(r"<style[\s\S]*?</style>", " ", html, flags=re.I)
     text = re.sub(r"<[^>]+>", " ", html)
-
     return re.sub(r"\s+", " ", text)[:8000]
 
 
@@ -1028,14 +1362,10 @@ def read_url_content(link):
             timeout=12,
             allow_redirects=True
         )
-
         ctype = r.headers.get("content-type", "").lower()
-
         if "text/html" not in ctype and "text/plain" not in ctype and ctype:
             return f"URL opened, but content type is not readable text: {ctype}"
-
         return html_to_text(r.text)
-
     except Exception:
         return "Failed reading URL."
 
@@ -1071,20 +1401,15 @@ def need_search(msg):
 def clean_result_link(link):
     if not link:
         return ""
-
     if link.startswith("//"):
         return "https:" + link
-
     if "duckduckgo.com/l/?" in link:
         try:
             qs = parse_qs(urlparse(link).query)
-
             if "uddg" in qs:
                 return unquote(qs["uddg"][0])
-
         except Exception:
             pass
-
     return link
 
 
@@ -1129,7 +1454,6 @@ def tavily_search(query):
                     })
 
                 return [x for x in out if x["title"] or x["text"]]
-
         except Exception:
             pass
 
@@ -1144,16 +1468,8 @@ def serper_search(query):
         try:
             r = requests.post(
                 "https://google.serper.dev/search",
-                headers={
-                    "X-API-KEY": key,
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "q": query,
-                    "gl": "id",
-                    "hl": "id",
-                    "num": 5
-                },
+                headers={"X-API-KEY": key, "Content-Type": "application/json"},
+                json={"q": query, "gl": "id", "hl": "id", "num": 5},
                 timeout=12
             )
 
@@ -1170,7 +1486,6 @@ def serper_search(query):
                     })
 
                 return [x for x in out if x["title"] or x["text"]]
-
         except Exception:
             pass
 
@@ -1185,12 +1500,7 @@ def serpapi_search(query):
         try:
             r = requests.get(
                 "https://serpapi.com/search.json",
-                params={
-                    "engine": "google",
-                    "q": query,
-                    "api_key": key,
-                    "hl": "id"
-                },
+                params={"engine": "google", "q": query, "api_key": key, "hl": "id"},
                 timeout=12
             )
 
@@ -1207,7 +1517,6 @@ def serpapi_search(query):
                     })
 
                 return [x for x in out if x["title"] or x["text"]]
-
         except Exception:
             pass
 
@@ -1225,12 +1534,7 @@ def google_cse_search(query):
         try:
             r = requests.get(
                 "https://www.googleapis.com/customsearch/v1",
-                params={
-                    "key": api_key,
-                    "cx": cse_id,
-                    "q": query,
-                    "num": 5
-                },
+                params={"key": api_key, "cx": cse_id, "q": query, "num": 5},
                 timeout=12
             )
 
@@ -1247,7 +1551,6 @@ def google_cse_search(query):
                     })
 
                 return [x for x in out if x["title"] or x["text"]]
-
         except Exception:
             pass
 
@@ -1262,14 +1565,8 @@ def brave_search(query):
         try:
             r = requests.get(
                 "https://api.search.brave.com/res/v1/web/search",
-                params={
-                    "q": query,
-                    "count": 5
-                },
-                headers={
-                    "X-Subscription-Token": key,
-                    "Accept": "application/json"
-                },
+                params={"q": query, "count": 5},
+                headers={"X-Subscription-Token": key, "Accept": "application/json"},
                 timeout=12
             )
 
@@ -1286,7 +1583,6 @@ def brave_search(query):
                     })
 
                 return [x for x in out if x["title"] or x["text"]]
-
         except Exception:
             pass
 
@@ -1297,15 +1593,9 @@ def ddg_instant_search(query):
     try:
         r = requests.get(
             "https://api.duckduckgo.com/",
-            params={
-                "q": query,
-                "format": "json",
-                "no_html": 1,
-                "no_redirect": 1
-            },
+            params={"q": query, "format": "json", "no_html": 1, "no_redirect": 1},
             timeout=12
         )
-
         data = r.json()
         out = []
 
@@ -1327,7 +1617,6 @@ def ddg_instant_search(query):
                 })
 
         return [x for x in out if x["title"] or x["text"]]
-
     except Exception:
         return []
 
@@ -1335,12 +1624,7 @@ def ddg_instant_search(query):
 def bing_rss_search(query):
     try:
         url = "https://www.bing.com/search?q=" + quote(query) + "&format=rss"
-        r = requests.get(
-            url,
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=12
-        )
-
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=12)
         items = re.findall(r"<item>(.*?)</item>", r.text, flags=re.S | re.I)
         out = []
 
@@ -1362,7 +1646,6 @@ def bing_rss_search(query):
                 })
 
         return out
-
     except Exception:
         return []
 
@@ -1374,7 +1657,6 @@ def wikipedia_search(query):
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=10
         )
-
         data = r.json()
 
         if data.get("extract"):
@@ -1386,14 +1668,12 @@ def wikipedia_search(query):
             }]
 
         return []
-
     except Exception:
         return []
 
 
 def web_search(query):
     results = []
-
     engines = [
         tavily_search,
         brave_search,
@@ -1404,7 +1684,6 @@ def web_search(query):
         bing_rss_search,
         wikipedia_search
     ]
-
     seen = set()
 
     for engine in engines:
@@ -1422,12 +1701,10 @@ def web_search(query):
 
             if not title and not text:
                 continue
-
             if key in seen:
                 continue
 
             seen.add(key)
-
             results.append({
                 "title": title,
                 "text": text or title,
@@ -1444,17 +1721,14 @@ def web_search(query):
 def favicon_html(link):
     try:
         domain = urlparse(link).netloc
-
         if not domain:
             return ""
-
         return (
             f"<a href='{link}' target='_blank' title='{domain}'>"
             f"<img src='https://www.google.com/s2/favicons?domain={domain}&sz=32' "
             f"style='width:16px;height:16px;border-radius:4px;vertical-align:middle;margin-right:6px;'>"
             f"</a>"
         )
-
     except Exception:
         return ""
 
@@ -1478,100 +1752,53 @@ def build_messages(cid, msg, mode="thinking"):
     mode = normalize_mode(mode)
 
     msgs = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT
-        }
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": THINKING_BRAIN_PROMPT if mode == "thinking" else INSTANT_BRAIN_PROMPT},
+        {"role": "system", "content": dynamic_style_prompt(msg)},
+        {"role": "system", "content": FEATURE_MANIFEST}
     ]
 
-    msgs.append({
-        "role": "system",
-        "content": THINKING_BRAIN_PROMPT if mode == "thinking" else INSTANT_BRAIN_PROMPT
-    })
-
-    msgs.append({
-        "role": "system",
-        "content": dynamic_style_prompt(msg)
-    })
-
-    msgs.append({
-        "role": "system",
-        "content": FEATURE_MANIFEST
-    })
-
     memory_text = memory_summary_text(limit=80)
-
     if memory_text:
-        msgs.append({
-            "role": "system",
-            "content": "Relevant cross-chat memory:\n" + memory_text
-        })
+        msgs.append({"role": "system", "content": "Relevant cross-chat memory:\n" + memory_text})
 
     actions = recent_actions(limit=30)
-
     if actions:
-        msgs.append({
-            "role": "system",
-            "content": "Recent NeuroMV actions:\n" + actions
-        })
+        msgs.append({"role": "system", "content": "Recent NeuroMV actions:\n" + actions})
 
     profile = get_profile()
-
     if profile.get("likes"):
-        msgs.append({
-            "role": "system",
-            "content": "User interests: " + ", ".join(profile["likes"])
-        })
+        msgs.append({"role": "system", "content": "User interests: " + ", ".join(profile["likes"])})
 
-    msgs.append({
-        "role": "user",
-        "content": msg
-    })
-
+    msgs.append({"role": "user", "content": msg})
     return msgs
 
 
 def messages_to_text(messages):
     out = []
-
     for m in messages:
         role = m.get("role", "user")
         content = m.get("content", "")
-
         if isinstance(content, str):
             out.append(f"{role}: {content}")
-
     return "\n".join(out)
 
 
 def cerebras_models():
     models = []
     env_model = os.getenv("CEREBRAS_MODEL", "").strip()
-
     if env_model:
         models.append(env_model)
-
-    models += [
-        "llama3.1-8b",
-        "llama-3.3-70b",
-        "llama3.3-70b"
-    ]
-
+    models += ["llama3.1-8b", "llama-3.3-70b", "llama3.3-70b"]
     return list(dict.fromkeys([m for m in models if m]))
 
 
 def gemini_models():
     models = []
     env_model = os.getenv("GEMINI_MODEL", "").strip()
-
     if env_model:
         models.append(env_model)
-
-    models += [
-        "gemini-1.5-flash",
-        "gemini-1.5-pro"
-    ]
-
+    models += ["gemini-1.5-flash", "gemini-1.5-pro"]
     return list(dict.fromkeys([m for m in models if m]))
 
 
@@ -1585,15 +1812,8 @@ def ask_cerebras(messages):
                 try:
                     r = requests.post(
                         "https://api.cerebras.ai/v1/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {key}",
-                            "Content-Type": "application/json"
-                        },
-                        json={
-                            "model": model_name,
-                            "messages": messages,
-                            "temperature": 0.7
-                        },
+                        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                        json={"model": model_name, "messages": messages, "temperature": 0.7},
                         timeout=REQUEST_TIMEOUT
                     )
 
@@ -1602,7 +1822,6 @@ def ask_cerebras(messages):
 
                     if r.status_code in [400, 401, 403, 404, 429]:
                         break
-
                 except Exception:
                     pass
 
@@ -1622,23 +1841,13 @@ def ask_groq(messages, model=None, mode="thinking"):
         models.append(model)
 
     env_model = os.getenv("GROQ_MODEL", "").strip()
-
     if env_model:
         models.append(env_model)
 
     models += (
-        [
-            "llama-3.1-8b-instant",
-            "llama3-70b-8192",
-            "llama-3.3-70b-versatile"
-        ]
+        ["llama-3.1-8b-instant", "llama3-70b-8192", "llama-3.3-70b-versatile"]
         if mode == "instant"
-        else [
-            "llama-3.3-70b-versatile",
-            "llama3-70b-8192",
-            "llama-3.1-70b-versatile",
-            "llama-3.1-8b-instant"
-        ]
+        else ["llama-3.3-70b-versatile", "llama3-70b-8192", "llama-3.1-70b-versatile", "llama-3.1-8b-instant"]
     )
 
     models = list(dict.fromkeys(models))
@@ -1649,15 +1858,8 @@ def ask_groq(messages, model=None, mode="thinking"):
                 try:
                     r = requests.post(
                         "https://api.groq.com/openai/v1/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {key}",
-                            "Content-Type": "application/json"
-                        },
-                        json={
-                            "model": model_name,
-                            "messages": messages,
-                            "temperature": 0.7
-                        },
+                        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                        json={"model": model_name, "messages": messages, "temperature": 0.7},
                         timeout=REQUEST_TIMEOUT
                     )
 
@@ -1666,7 +1868,6 @@ def ask_groq(messages, model=None, mode="thinking"):
 
                     if r.status_code in [400, 401, 403, 404, 429]:
                         break
-
                 except Exception:
                     pass
 
@@ -1684,23 +1885,11 @@ def ask_gemini_text(prompt):
             for _ in range(MAX_RETRIES):
                 try:
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-
                     r = requests.post(
                         url,
                         json={
-                            "contents": [
-                                {
-                                    "parts": [
-                                        {
-                                            "text": prompt
-                                        }
-                                    ]
-                                }
-                            ],
-                            "generationConfig": {
-                                "temperature": 0.7,
-                                "maxOutputTokens": 4096
-                            }
+                            "contents": [{"parts": [{"text": prompt}]}],
+                            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 4096}
                         },
                         timeout=REQUEST_TIMEOUT
                     )
@@ -1708,17 +1897,14 @@ def ask_gemini_text(prompt):
                     if r.status_code == 200:
                         data = r.json()
                         candidates = data.get("candidates", [])
-
                         if candidates:
                             parts = candidates[0].get("content", {}).get("parts", [])
                             texts = [p["text"] for p in parts if p.get("text")]
-
                             if texts:
                                 return "\n".join(texts).strip()
 
                     if r.status_code in [400, 401, 403, 404, 429]:
                         break
-
                 except Exception:
                     pass
 
@@ -1734,7 +1920,6 @@ def ask_gemini_chat(messages):
 def local_fallback(msg):
     if is_self_identity_question(msg):
         return "Aku NeuroMV, AI assistant yang dibuat oleh Marvell Jonathan Siau."
-
     return "Aku siap bantu. Coba tulis sedikit lebih detail supaya aku bisa jawab lebih tepat."
 
 
@@ -1758,10 +1943,8 @@ def ask_ai(cid, msg, mode="thinking"):
     for fn in providers:
         try:
             out = fn()
-
             if out:
                 return clean_model_output(out, msg)
-
         except Exception:
             pass
 
@@ -1779,26 +1962,13 @@ def stream_cerebras(messages, mode="thinking"):
             try:
                 r = requests.post(
                     "https://api.cerebras.ai/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": model_name,
-                        "messages": messages,
-                        "temperature": 0.7,
-                        "stream": True
-                    },
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={"model": model_name, "messages": messages, "temperature": 0.7, "stream": True},
                     timeout=REQUEST_TIMEOUT,
                     stream=True
                 )
-
                 if r.status_code == 200:
-                    return {
-                        "provider": "openai_sse",
-                        "response": r
-                    }
-
+                    return {"provider": "openai_sse", "response": r}
             except Exception:
                 pass
 
@@ -1810,18 +1980,9 @@ def stream_groq(messages, mode="thinking"):
         return None
 
     models = (
-        [
-            "llama-3.1-8b-instant",
-            "llama3-70b-8192",
-            "llama-3.3-70b-versatile"
-        ]
+        ["llama-3.1-8b-instant", "llama3-70b-8192", "llama-3.3-70b-versatile"]
         if normalize_mode(mode) == "instant"
-        else [
-            "llama-3.3-70b-versatile",
-            "llama3-70b-8192",
-            "llama-3.1-70b-versatile",
-            "llama-3.1-8b-instant"
-        ]
+        else ["llama-3.3-70b-versatile", "llama3-70b-8192", "llama-3.1-70b-versatile", "llama-3.1-8b-instant"]
     )
 
     for model_name in models:
@@ -1829,26 +1990,13 @@ def stream_groq(messages, mode="thinking"):
             try:
                 r = requests.post(
                     "https://api.groq.com/openai/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": model_name,
-                        "messages": messages,
-                        "temperature": 0.7,
-                        "stream": True
-                    },
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={"model": model_name, "messages": messages, "temperature": 0.7, "stream": True},
                     timeout=REQUEST_TIMEOUT,
                     stream=True
                 )
-
                 if r.status_code == 200:
-                    return {
-                        "provider": "openai_sse",
-                        "response": r
-                    }
-
+                    return {"provider": "openai_sse", "response": r}
             except Exception:
                 pass
 
@@ -1865,34 +2013,17 @@ def stream_gemini(messages, mode="thinking"):
         for key in shuffled(GEMINI_KEYS):
             try:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?key={key}&alt=sse"
-
                 r = requests.post(
                     url,
                     json={
-                        "contents": [
-                            {
-                                "parts": [
-                                    {
-                                        "text": prompt
-                                    }
-                                ]
-                            }
-                        ],
-                        "generationConfig": {
-                            "temperature": 0.7,
-                            "maxOutputTokens": 4096
-                        }
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 4096}
                     },
                     timeout=REQUEST_TIMEOUT,
                     stream=True
                 )
-
                 if r.status_code == 200:
-                    return {
-                        "provider": "gemini",
-                        "response": r
-                    }
-
+                    return {"provider": "gemini", "response": r}
             except Exception:
                 pass
 
@@ -1910,24 +2041,17 @@ def iter_stream_tokens(pack):
         for line in r.iter_lines():
             if not line:
                 continue
-
             raw = line.decode("utf-8", errors="ignore")
-
             if not raw.startswith("data: "):
                 continue
-
             payload = raw.replace("data: ", "").strip()
-
             if payload == "[DONE]":
                 break
-
             try:
                 data = json.loads(payload)
                 token = data["choices"][0].get("delta", {}).get("content", "")
-
                 if token:
                     yield token
-
             except Exception:
                 pass
 
@@ -1935,26 +2059,18 @@ def iter_stream_tokens(pack):
         for line in r.iter_lines():
             if not line:
                 continue
-
             raw = line.decode("utf-8", errors="ignore").strip()
-
             if not raw.startswith("data:"):
                 continue
-
             payload = raw.replace("data:", "", 1).strip()
-
             if not payload or payload == "[DONE]":
                 continue
-
             try:
                 data = json.loads(payload)
-
                 for p in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
                     token = p.get("text", "")
-
                     if token:
                         yield token
-
             except Exception:
                 pass
 
@@ -1964,62 +2080,32 @@ def iter_stream_tokens(pack):
 def extract_json(text):
     try:
         m = re.search(r"\{[\s\S]*\}", text or "")
-
         if not m:
             return None
-
         return json.loads(m.group(0))
-
     except Exception:
         return None
 
 
 def heuristic_route(msg):
     if is_self_identity_question(msg):
-        return {
-            "action": "chat",
-            "reason": "self identity"
-        }
-
+        return {"action": "chat", "reason": "self identity"}
     if extract_url(msg):
-        return {
-            "action": "url",
-            "reason": "url"
-        }
-
+        return {"action": "url", "reason": "url"}
     if wants_memory_recall(msg):
-        return {
-            "action": "memory",
-            "reason": "memory"
-        }
-
+        return {"action": "memory", "reason": "memory"}
     if want_image(msg):
-        return {
-            "action": "image",
-            "reason": "image generation"
-        }
-
+        return {"action": "image", "reason": "image generation"}
     if need_search(msg):
-        return {
-            "action": "search",
-            "reason": "current info"
-        }
-
-    return {
-        "action": "chat",
-        "reason": "normal"
-    }
+        return {"action": "search", "reason": "current info"}
+    return {"action": "chat", "reason": "normal"}
 
 
 def smart_route(cid, msg, mode="thinking"):
     if not msg:
-        return {
-            "action": "chat",
-            "reason": "empty"
-        }
+        return {"action": "chat", "reason": "empty"}
 
     quick = heuristic_route(msg)
-
     if quick["action"] in ["url", "memory", "image"] or is_self_identity_question(msg):
         return quick
 
@@ -2045,14 +2131,8 @@ JSON:
 """
 
     router_messages = [
-        {
-            "role": "system",
-            "content": "Return only valid JSON."
-        },
-        {
-            "role": "user",
-            "content": router_prompt
-        }
+        {"role": "system", "content": "Return only valid JSON."},
+        {"role": "user", "content": router_prompt}
     ]
 
     out = ask_cerebras(router_messages) or ask_groq(router_messages, mode="instant") or ask_gemini_chat(router_messages)
@@ -2062,14 +2142,10 @@ JSON:
         return quick
 
     action = str(data.get("action", "chat")).lower().strip()
-
     if action not in ["search", "memory", "image", "url", "chat"]:
         action = "chat"
 
-    return {
-        "action": action,
-        "reason": str(data.get("reason", ""))
-    }
+    return {"action": action, "reason": str(data.get("reason", ""))}
 
 # ==================================================
 # OCR + VISION
@@ -2079,13 +2155,10 @@ PADDLE_OCR_ENGINE = None
 
 def image_mime(filename):
     low = filename.lower()
-
     if low.endswith(".png"):
         return "image/png"
-
     if low.endswith(".webp"):
         return "image/webp"
-
     return "image/jpeg"
 
 
@@ -2101,19 +2174,10 @@ def get_paddle_ocr():
     lang = os.getenv("PADDLE_OCR_LANG", "en")
 
     try:
-        PADDLE_OCR_ENGINE = PaddleOCR(
-            use_angle_cls=True,
-            lang=lang,
-            show_log=False
-        )
-
+        PADDLE_OCR_ENGINE = PaddleOCR(use_angle_cls=True, lang=lang, show_log=False)
     except TypeError:
         try:
-            PADDLE_OCR_ENGINE = PaddleOCR(
-                use_textline_orientation=True,
-                lang=lang
-            )
-
+            PADDLE_OCR_ENGINE = PaddleOCR(use_textline_orientation=True, lang=lang)
         except Exception:
             PADDLE_OCR_ENGINE = None
 
@@ -2128,12 +2192,10 @@ def flatten_paddle_text(result):
             for key in ["rec_text", "text"]:
                 if key in x and isinstance(x[key], str) and x[key].strip():
                     lines.append(x[key].strip())
-
             if "rec_texts" in x and isinstance(x["rec_texts"], list):
                 for t in x["rec_texts"]:
                     if isinstance(t, str) and t.strip():
                         lines.append(t.strip())
-
             for v in x.values():
                 walk(v)
 
@@ -2145,10 +2207,8 @@ def flatten_paddle_text(result):
                 and isinstance(x[1][0], str)
             ):
                 text = x[1][0].strip()
-
                 if text:
                     lines.append(text)
-
             for item in x:
                 walk(item)
 
@@ -2159,7 +2219,6 @@ def flatten_paddle_text(result):
 
     for t in lines:
         key = t.lower().strip()
-
         if key and key not in seen:
             seen.add(key)
             clean.append(t)
@@ -2177,10 +2236,7 @@ def ocr_mistral_image(image_bytes, filename):
 
     payload = {
         "model": "mistral-ocr-latest",
-        "document": {
-            "type": "image_url",
-            "image_url": data_url
-        },
+        "document": {"type": "image_url", "image_url": data_url},
         "include_image_base64": False
     }
 
@@ -2189,10 +2245,7 @@ def ocr_mistral_image(image_bytes, filename):
             try:
                 r = requests.post(
                     "https://api.mistral.ai/v1/ocr",
-                    headers={
-                        "Authorization": f"Bearer {key}",
-                        "Content-Type": "application/json"
-                    },
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                     json=payload,
                     timeout=REQUEST_TIMEOUT
                 )
@@ -2200,18 +2253,14 @@ def ocr_mistral_image(image_bytes, filename):
                 if r.status_code == 200:
                     data = r.json()
                     out = []
-
                     for p in data.get("pages", []):
                         markdown = p.get("markdown", "")
-
                         if markdown and markdown.strip():
                             out.append(markdown.strip())
-
                     return "\n\n".join(out)[:7000]
 
                 if r.status_code in [400, 401, 403, 404, 429]:
                     break
-
             except Exception:
                 pass
 
@@ -2223,7 +2272,6 @@ def ocr_mistral_image(image_bytes, filename):
 def ocr_paddle_image(image_bytes, filename="image.jpg"):
     try:
         engine = get_paddle_ocr()
-
         if engine is None:
             return ""
 
@@ -2248,7 +2296,6 @@ def ocr_paddle_image(image_bytes, filename="image.jpg"):
                 pass
 
         return flatten_paddle_text(result)[:5000]
-
     except Exception:
         return ""
 
@@ -2261,32 +2308,20 @@ def ocr_space_image(image_bytes):
         try:
             r = requests.post(
                 "https://api.ocr.space/parse/image",
-                headers={
-                    "apikey": key
-                },
-                files={
-                    "filename": ("image.jpg", image_bytes)
-                },
-                data={
-                    "language": "eng",
-                    "isOverlayRequired": "false",
-                    "OCREngine": "2"
-                },
+                headers={"apikey": key},
+                files={"filename": ("image.jpg", image_bytes)},
+                data={"language": "eng", "isOverlayRequired": "false", "OCREngine": "2"},
                 timeout=25
             )
 
             if r.status_code == 200:
                 data = r.json()
                 text = []
-
                 for p in data.get("ParsedResults", []):
                     t = p.get("ParsedText", "").strip()
-
                     if t:
                         text.append(t)
-
                 return "\n".join(text)[:5000]
-
         except Exception:
             pass
 
@@ -2294,11 +2329,7 @@ def ocr_space_image(image_bytes):
 
 
 def ocr_image(image_bytes, filename):
-    return (
-        ocr_mistral_image(image_bytes, filename)
-        or ocr_paddle_image(image_bytes, filename)
-        or ocr_space_image(image_bytes)
-    )
+    return ocr_mistral_image(image_bytes, filename) or ocr_paddle_image(image_bytes, filename) or ocr_space_image(image_bytes)
 
 
 def cloudflare_vision(prompt, image_bytes):
@@ -2313,38 +2344,22 @@ def cloudflare_vision(prompt, image_bytes):
     for account_id, token in pairs:
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
-
             r = requests.post(
                 url,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "prompt": prompt or "Describe this image clearly.",
-                    "image": image_array,
-                    "max_tokens": 900
-                },
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json={"prompt": prompt or "Describe this image clearly.", "image": image_array, "max_tokens": 900},
                 timeout=REQUEST_TIMEOUT
             )
 
             if r.status_code == 200:
                 data = r.json()
                 result = data.get("result", {})
-
                 if isinstance(result, dict):
-                    text = (
-                        result.get("response")
-                        or result.get("text")
-                        or result.get("description")
-                    )
-
+                    text = result.get("response") or result.get("text") or result.get("description")
                     if text:
                         return text.strip()
-
                 if isinstance(result, str):
                     return result.strip()
-
         except Exception:
             pass
 
@@ -2359,30 +2374,19 @@ def ask_vision_groq(prompt, image_bytes, filename):
     mime = image_mime(filename)
     data_url = f"data:{mime};base64,{b64}"
 
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": prompt or "Analyze this image clearly."
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": data_url
-                    }
-                }
-            ]
-        }
-    ]
+    messages = [{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": prompt or "Analyze this image clearly."},
+            {"type": "image_url", "image_url": {"url": data_url}}
+        ]
+    }]
 
     for model in [
         "meta-llama/llama-4-scout-17b-16e-instruct",
         "llama-3.2-11b-vision-preview"
     ]:
         out = ask_groq(messages, model=model)
-
         if out:
             return out
 
@@ -2399,22 +2403,17 @@ def hf_image_caption(image_bytes):
         try:
             r = requests.post(
                 f"https://api-inference.huggingface.co/models/{model}",
-                headers={
-                    "Authorization": f"Bearer {key}"
-                },
+                headers={"Authorization": f"Bearer {key}"},
                 data=image_bytes,
                 timeout=30
             )
 
             if r.status_code == 200:
                 data = r.json()
-
                 if isinstance(data, list) and data:
                     text = data[0].get("generated_text", "")
-
                     if text:
                         return text.strip()
-
         except Exception:
             pass
 
@@ -2432,42 +2431,25 @@ def ask_vision_gemini(prompt, image_bytes, filename):
         for key in shuffled(GEMINI_KEYS):
             try:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-
                 payload = {
-                    "contents": [
-                        {
-                            "parts": [
-                                {
-                                    "text": prompt or "Analyze this image clearly."
-                                },
-                                {
-                                    "inline_data": {
-                                        "mime_type": mime,
-                                        "data": b64
-                                    }
-                                }
-                            ]
-                        }
-                    ],
-                    "generationConfig": {
-                        "temperature": 0.4,
-                        "maxOutputTokens": 2048
-                    }
+                    "contents": [{
+                        "parts": [
+                            {"text": prompt or "Analyze this image clearly."},
+                            {"inline_data": {"mime_type": mime, "data": b64}}
+                        ]
+                    }],
+                    "generationConfig": {"temperature": 0.4, "maxOutputTokens": 2048}
                 }
-
                 r = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
 
                 if r.status_code == 200:
                     data = r.json()
                     candidates = data.get("candidates", [])
-
                     if candidates:
                         parts = candidates[0].get("content", {}).get("parts", [])
                         texts = [p["text"] for p in parts if p.get("text")]
-
                         if texts:
                             return "\n".join(texts).strip()
-
             except Exception:
                 pass
 
@@ -2500,11 +2482,7 @@ User question:
 
     vision_text = vision_image(vision_prompt, image_bytes, filename)
 
-    remember_action(
-        cid,
-        "analyze_image",
-        f"filename={filename}; ocr={'yes' if ocr_text else 'no'}; vision={'yes' if vision_text else 'no'}"
-    )
+    remember_action(cid, "analyze_image", f"filename={filename}; ocr={'yes' if ocr_text else 'no'}; vision={'yes' if vision_text else 'no'}")
 
     ask = f"""
 User uploaded an image.
@@ -2527,7 +2505,6 @@ If unclear, say what is unclear.
 
     reply = ask_ai(cid, ask, mode)
     ensure_min_thinking_time(mode, started)
-
     return reply
 
 # ==================================================
@@ -2543,10 +2520,7 @@ def stale_guard(msg, reply, results):
 
     if "presiden" in low and "indonesia" in low:
         if ("joko widodo" in rlow or "jokowi" in rlow) and "prabowo" in combined_sources:
-            return (
-                "Berdasarkan hasil web yang ditemukan, Presiden Indonesia saat ini adalah "
-                "**Prabowo Subianto**. Joko Widodo adalah presiden sebelumnya."
-            )
+            return "Berdasarkan hasil web yang ditemukan, Presiden Indonesia saat ini adalah **Prabowo Subianto**. Joko Widodo adalah presiden sebelumnya."
 
     return reply
 
@@ -2560,11 +2534,7 @@ def answer_with_memory(cid, msg, mode="thinking"):
     memory_text = memory_summary_text(limit=120)
 
     if not memory_text:
-        reply = (
-            "Aku belum punya cukup memory tersimpan untuk mengingat obrolan sebelumnya. "
-            "Tapi mulai dari chat ini, aku akan menyimpan konteks yang relevan."
-        )
-
+        reply = "Aku belum punya cukup memory tersimpan untuk mengingat obrolan sebelumnya. Tapi mulai dari chat ini, aku akan menyimpan konteks yang relevan."
     else:
         ask = f"""
 User asks about previous conversation.
@@ -2582,18 +2552,13 @@ Answer from saved memory only. Do not search.
     remember_action(cid, "memory_recall", msg)
     reply = clean_model_output(reply, msg)
 
-    push(cid, "user", msg)
-    push(cid, "bot", reply)
+    backend_add_message(cid, "user", msg)
+    backend_add_message(cid, "bot", reply)
     add_limit("chat")
 
     ensure_min_thinking_time(mode, started)
 
-    return jsonify({
-        "type": "text",
-        "status": "thinking",
-        "reply": reply,
-        "remaining": all_remaining()
-    })
+    return jsonify({"type": "text", "status": "thinking", "reply": reply, "remaining": all_remaining()})
 
 
 def answer_with_search(cid, msg, mode="thinking"):
@@ -2606,11 +2571,7 @@ def answer_with_search(cid, msg, mode="thinking"):
     remember_action(cid, "web_search", msg)
 
     if not results:
-        reply = (
-            "Aku sudah mencoba mencari data online, tapi belum menemukan hasil web yang cukup jelas. "
-            "Aku tidak mau menebak untuk pertanyaan yang butuh data terbaru."
-        )
-
+        reply = "Aku sudah mencoba mencari data online, tapi belum menemukan hasil web yang cukup jelas. Aku tidak mau menebak untuk pertanyaan yang butuh data terbaru."
     else:
         context = "\n".join([
             f"- Title: {x['title']}\n  Snippet: {x['text']}\n  Source: {x['source']}\n  Link: {x['link']}"
@@ -2632,24 +2593,18 @@ Rules:
 - If unclear, say unclear.
 - Answer in user's language.
 """
-
         reply = ask_ai(cid, ask, mode)
         reply = stale_guard(msg, reply, results)
         reply = clean_model_output(reply, msg)
         reply += source_block(results)
 
-    push(cid, "user", msg)
-    push(cid, "bot", reply)
+    backend_add_message(cid, "user", msg)
+    backend_add_message(cid, "bot", reply)
     add_limit("chat")
 
     ensure_min_thinking_time(mode, started)
 
-    return jsonify({
-        "type": "text",
-        "status": "searching",
-        "reply": reply,
-        "remaining": all_remaining()
-    })
+    return jsonify({"type": "text", "status": "searching", "reply": reply, "remaining": all_remaining()})
 
 # ==================================================
 # TITLE ROUTE
@@ -2660,21 +2615,19 @@ def clean_chat_title(title):
     title = re.sub(r"[*_`#>\[\]{}]", "", title)
     title = re.sub(r"\s+", " ", title).strip()
     title = title.strip("\"'“”‘’")
-
     return title[:42] if title else ""
 
 
 @app.route("/title", methods=["POST"])
 def title_chat():
+    cid = request.form.get("chat_id", "").strip()
     msg = request.form.get("message", "").strip()
     reply = request.form.get("reply", "").strip()
     file = request.form.get("file", "").strip()
     base = msg or file or reply
 
     if not base:
-        return jsonify({
-            "title": "New Chat"
-        })
+        return jsonify({"title": "New Chat"})
 
     prompt = f"""
 Create a short ChatGPT-style chat title.
@@ -2699,31 +2652,20 @@ Return only title.
 """
 
     messages = [
-        {
-            "role": "system",
-            "content": "Return only a short chat title."
-        },
-        {
-            "role": "user",
-            "content": prompt
-        }
+        {"role": "system", "content": "Return only a short chat title."},
+        {"role": "user", "content": prompt}
     ]
 
-    out = (
-        ask_cerebras(messages)
-        or ask_groq(messages, mode="instant")
-        or ask_gemini_chat(messages)
-        or ""
-    )
-
+    out = ask_cerebras(messages) or ask_groq(messages, mode="instant") or ask_gemini_chat(messages) or ""
     title = clean_chat_title(out) or clean_chat_title(msg or file or "New Chat")
 
-    return jsonify({
-        "title": title or "New Chat"
-    })
+    if cid and title:
+        update_backend_title(cid, title)
+
+    return jsonify({"title": title or "New Chat"})
 
 # ==================================================
-# ROUTES
+# ROUTES: BASE
 # ==================================================
 @app.route("/")
 def home():
@@ -2733,11 +2675,7 @@ def home():
 @app.route("/limits", methods=["POST", "GET"])
 def limits():
     ensure_daily()
-
-    return jsonify({
-        "type": "limits",
-        "remaining": all_remaining()
-    })
+    return jsonify({"type": "limits", "remaining": all_remaining()})
 
 
 @app.route("/route", methods=["POST"])
@@ -2754,15 +2692,124 @@ def route_intent():
         "reason": route.get("reason", "")
     })
 
+# ==================================================
+# ROUTES: BACKEND CHAT STORAGE
+# ==================================================
+@app.route("/chats", methods=["POST", "GET"])
+def chats_route():
+    private = str(request.values.get("private", "0")).lower() in ["1", "true", "yes"]
+    return jsonify({
+        "ok": True,
+        "chats": list_backend_chats(private=private)
+    })
 
+
+@app.route("/chat/create", methods=["POST"])
+def chat_create_route():
+    title = request.form.get("title", "New Chat").strip() or "New Chat"
+    private = str(request.form.get("private", "0")).lower() in ["1", "true", "yes"]
+    chat = create_backend_chat(title=title, private=private)
+    return jsonify({"ok": True, "chat": chat})
+
+
+@app.route("/chat/messages", methods=["POST", "GET"])
+def chat_messages_route():
+    cid = request.values.get("chat_id", "").strip()
+    chat = get_backend_chat(cid)
+
+    if not chat:
+        return jsonify({"ok": False, "messages": [], "chat": None})
+
+    return jsonify({
+        "ok": True,
+        "chat": {
+            "id": chat.get("id"),
+            "title": chat.get("title", "New Chat"),
+            "private": bool(chat.get("private")),
+            "created": chat.get("created", 0),
+            "updated": chat.get("updated", 0)
+        },
+        "messages": chat.get("messages", [])
+    })
+
+
+@app.route("/chat/rename", methods=["POST"])
+def chat_rename_route():
+    cid = request.form.get("chat_id", "").strip()
+    title = request.form.get("title", "New Chat").strip() or "New Chat"
+    ok = update_backend_title(cid, title)
+    return jsonify({"ok": ok})
+
+
+@app.route("/chat/private", methods=["POST"])
+def chat_private_route():
+    cid = request.form.get("chat_id", "").strip()
+    private = str(request.form.get("private", "1")).lower() in ["1", "true", "yes"]
+    ok = set_backend_private(cid, private)
+    return jsonify({"ok": ok})
+
+
+@app.route("/chat/delete", methods=["POST"])
+def chat_delete_route():
+    cid = request.form.get("chat_id", "").strip()
+    if cid:
+        delete_backend_chat(cid)
+    return jsonify({"ok": True})
+
+
+@app.route("/chat/truncate", methods=["POST"])
+def chat_truncate_route():
+    cid = request.form.get("chat_id", "").strip()
+    index = request.form.get("index", "-1")
+    ok = truncate_backend_chat(cid, index)
+    return jsonify({"ok": ok})
+
+
+@app.route("/chat/update_user_message", methods=["POST"])
+def chat_update_user_message_route():
+    cid = request.form.get("chat_id", "").strip()
+    index = request.form.get("index", "-1")
+    text = request.form.get("text", "")
+    ok = update_backend_user_message(cid, index, text)
+    return jsonify({"ok": ok})
+
+
+@app.route("/memory/delete_chat", methods=["POST"])
+def memory_delete_chat_route():
+    cid = request.form.get("chat_id", "").strip()
+    if cid:
+        delete_backend_chat(cid)
+    return jsonify({"ok": True})
+
+
+@app.route("/memory/delete_all", methods=["POST"])
+def memory_delete_all_route():
+    delete_all_backend_data_for_user()
+    return jsonify({"ok": True})
+
+
+@app.route("/chats/delete_all", methods=["POST"])
+def chats_delete_all_route():
+    delete_all_backend_data_for_user()
+    return jsonify({"ok": True})
+
+# ==================================================
+# CHAT NORMAL / FILE
+# ==================================================
 @app.route("/chat", methods=["POST"])
 def chat():
     ensure_daily()
     started = time.time()
 
-    cid = request.form.get("chat_id", "default")
+    cid = request.form.get("chat_id", "").strip()
     msg = request.form.get("message", "").strip()
     mode = normalize_mode(request.form.get("mode", "thinking"))
+
+    if not cid:
+        chat_obj = create_backend_chat(title="New Chat")
+        cid = chat_obj["id"]
+    else:
+        ensure_backend_chat(cid)
 
     if over_limit("chat"):
         return limit_json("chat")
@@ -2777,6 +2824,21 @@ def chat():
             add_limit("file")
             data = f.read()
             low = f.filename.lower()
+            mime = image_mime(f.filename) if low.endswith((".png", ".jpg", ".jpeg", ".webp")) else (f.content_type or "application/octet-stream")
+
+            meta = {
+                "name": f.filename,
+                "type": mime,
+                "size": len(data)
+            }
+
+            if low.endswith((".png", ".jpg", ".jpeg", ".webp")):
+                meta["dataUrl"] = f"data:{mime};base64," + base64.b64encode(data).decode()
+
+            backend_add_message(cid, "user", "", msg_type="attachment", meta=meta, save_memory=False)
+
+            if msg:
+                backend_add_message(cid, "user", msg)
 
             if low.endswith((".png", ".jpg", ".jpeg", ".webp")):
                 reply = analyze_image_full(cid, msg, data, f.filename, mode)
@@ -2786,8 +2848,7 @@ def chat():
 
                 reply = clean_model_output(reply, msg)
 
-                push(cid, "user", "[image] " + f.filename + (" " + msg if msg else ""))
-                push(cid, "bot", reply)
+                backend_add_message(cid, "bot", reply)
                 add_limit("chat")
 
                 return jsonify({
@@ -2813,8 +2874,7 @@ User request:
             reply = ask_ai(cid, ask, mode)
             reply = clean_model_output(reply, msg)
 
-            push(cid, "user", "[file] " + f.filename)
-            push(cid, "bot", reply)
+            backend_add_message(cid, "bot", reply)
             add_limit("chat")
 
             ensure_min_thinking_time(mode, started)
@@ -2826,18 +2886,10 @@ User request:
             })
 
     if not msg:
-        return jsonify({
-            "type": "text",
-            "reply": "Tulis pesan dulu ya.",
-            "remaining": all_remaining()
-        })
+        return jsonify({"type": "text", "reply": "Tulis pesan dulu ya.", "remaining": all_remaining()})
 
     if blocked(msg):
-        return jsonify({
-            "type": "text",
-            "reply": "I can't help with that request.",
-            "remaining": all_remaining()
-        })
+        return jsonify({"type": "text", "reply": refusal_reply(msg), "remaining": all_remaining()})
 
     learn_interest(msg)
 
@@ -2868,8 +2920,8 @@ Explain, summarize, or answer based on the webpage. Use the user's language.
             reply = ask_ai(cid, ask, mode)
             reply = clean_model_output(reply, msg)
 
-            push(cid, "user", msg)
-            push(cid, "bot", reply)
+            backend_add_message(cid, "user", msg)
+            backend_add_message(cid, "bot", reply)
             add_limit("chat")
 
             ensure_min_thinking_time(mode, started)
@@ -2889,8 +2941,8 @@ Explain, summarize, or answer based on the webpage. Use the user's language.
         img = make_image(msg)
         remember_action(cid, "create_image", msg)
 
-        push(cid, "user", msg)
-        push(cid, "bot", "[image generated] " + img["url"])
+        backend_add_message(cid, "user", msg)
+        backend_add_message(cid, "bot", "[image generated] " + img["url"], msg_type="image", url=img["url"])
         add_limit("chat")
 
         return jsonify({
@@ -2908,8 +2960,8 @@ Explain, summarize, or answer based on the webpage. Use the user's language.
     reply = ask_ai(cid, msg, mode)
     reply = clean_model_output(reply, msg)
 
-    push(cid, "user", msg)
-    push(cid, "bot", reply)
+    backend_add_message(cid, "user", msg)
+    backend_add_message(cid, "bot", reply)
     add_limit("chat")
 
     ensure_min_thinking_time(mode, started)
@@ -2921,45 +2973,45 @@ Explain, summarize, or answer based on the webpage. Use the user's language.
         "remaining": all_remaining()
     })
 
-
+# ==================================================
+# STREAMING CHAT
+# ==================================================
 @app.route("/chat_stream", methods=["POST"])
 def chat_stream():
     ensure_daily()
 
-    cid = request.form.get("chat_id", "default")
+    cid = request.form.get("chat_id", "").strip()
     msg = request.form.get("message", "").strip()
     mode = normalize_mode(request.form.get("mode", "thinking"))
+    skip_user_save = str(request.form.get("skip_user_save", "0")).lower() in ["1", "true", "yes"]
+
+    if not cid:
+        chat_obj = create_backend_chat(title="New Chat")
+        cid = chat_obj["id"]
+    else:
+        ensure_backend_chat(cid)
 
     if not msg:
-        return Response(
-            "data: " + json.dumps({
-                "type": "error",
-                "text": "Tulis pesan dulu ya.",
-                "remaining": all_remaining()
-            }) + "\n\n",
-            mimetype="text/event-stream"
-        )
+        return Response("data: " + json.dumps({
+            "type": "error",
+            "text": "Tulis pesan dulu ya.",
+            "remaining": all_remaining()
+        }) + "\n\n", mimetype="text/event-stream")
 
     if blocked(msg):
-        return Response(
-            "data: " + json.dumps({
-                "type": "error",
-                "text": "I can't help with that request.",
-                "remaining": all_remaining()
-            }) + "\n\n",
-            mimetype="text/event-stream"
-        )
+        return Response("data: " + json.dumps({
+            "type": "error",
+            "text": refusal_reply(msg),
+            "remaining": all_remaining()
+        }) + "\n\n", mimetype="text/event-stream")
 
     if over_limit("chat"):
-        return Response(
-            "data: " + json.dumps({
-                "type": "error",
-                "code": "limit_chat",
-                "text": limit_reply("chat"),
-                "remaining": all_remaining()
-            }) + "\n\n",
-            mimetype="text/event-stream"
-        )
+        return Response("data: " + json.dumps({
+            "type": "error",
+            "code": "limit_chat",
+            "text": limit_reply("chat"),
+            "remaining": all_remaining()
+        }) + "\n\n", mimetype="text/event-stream")
 
     learn_interest(msg)
 
@@ -2968,6 +3020,7 @@ def chat_stream():
         full_reply = ""
         search_results_cache = []
         action = "chat"
+        saved_user = False
 
         try:
             route = smart_route(cid, msg, mode)
@@ -2987,21 +3040,24 @@ def chat_stream():
                 img = make_image(msg)
                 remember_action(cid, "create_image", msg)
 
+                if not skip_user_save:
+                    backend_add_message(cid, "user", msg)
+                    saved_user = True
+
+                backend_add_message(cid, "bot", "[image generated] " + img["url"], msg_type="image", url=img["url"])
+                add_limit("chat")
+
                 yield "data: " + json.dumps({
                     "type": "image",
                     "url": img["url"],
                     "remaining": all_remaining()
                 }) + "\n\n"
 
-                push(cid, "user", msg)
-                push(cid, "bot", "[image generated] " + img["url"])
-                add_limit("chat")
                 return
 
             if action == "memory":
                 remember_action(cid, "memory_recall", msg)
                 memory_text = memory_summary_text(limit=120)
-
                 prompt = f"""
 User asks about previous conversation.
 
@@ -3019,7 +3075,6 @@ Answer from memory only. Do not search.
                 link = extract_url(msg)
                 remember_action(cid, "read_url", link or msg)
                 content = read_url_content(link) if link else "No valid URL detected."
-
                 prompt = f"""
 User sent URL:
 {link}
@@ -3037,18 +3092,9 @@ Answer based on the webpage.
                 search_results_cache = results
 
                 if not results:
-                    text = (
-                        "Aku sudah mencoba mencari data online, tapi belum menemukan hasil web yang cukup jelas. "
-                        "Aku tidak mau menebak untuk pertanyaan yang butuh data terbaru."
-                    )
-
+                    text = "Aku sudah mencoba mencari data online, tapi belum menemukan hasil web yang cukup jelas. Aku tidak mau menebak untuk pertanyaan yang butuh data terbaru."
                     ensure_min_thinking_time(mode, started)
-
-                    yield "data: " + json.dumps({
-                        "type": "token",
-                        "text": text
-                    }) + "\n\n"
-
+                    yield "data: " + json.dumps({"type": "token", "text": text}) + "\n\n"
                     full_reply += text
                     return
 
@@ -3056,7 +3102,6 @@ Answer based on the webpage.
                     f"- Title: {x['title']}\n  Snippet: {x['text']}\n  Source: {x['source']}\n  Link: {x['link']}"
                     for x in results
                 ])
-
                 prompt = f"""
 User question:
 {msg}
@@ -3072,11 +3117,7 @@ Answer based only on live web results. Do not guess.
                 remember_action(cid, "chat", msg)
                 messages = build_messages(cid, msg, mode)
 
-            stream_pack = (
-                stream_cerebras(messages, mode)
-                or stream_groq(messages, mode)
-                or stream_gemini(messages, mode)
-            )
+            stream_pack = stream_cerebras(messages, mode) or stream_groq(messages, mode) or stream_gemini(messages, mode)
 
             ensure_min_thinking_time(mode, started)
 
@@ -3084,12 +3125,7 @@ Answer based only on live web results. Do not guess.
                 fallback_msg = messages[-1]["content"] if messages else msg
                 fallback = ask_ai(cid, fallback_msg, mode)
                 fallback = clean_model_output(fallback, msg)
-
-                yield "data: " + json.dumps({
-                    "type": "token",
-                    "text": fallback
-                }) + "\n\n"
-
+                yield "data: " + json.dumps({"type": "token", "text": fallback}) + "\n\n"
                 full_reply += fallback
                 return
 
@@ -3097,31 +3133,22 @@ Answer based only on live web results. Do not guess.
                 if token:
                     if "NeuroMV_Recent" in token or "Recent NeuroMV actions" in token:
                         continue
-
                     full_reply += token
-
-                    yield "data: " + json.dumps({
-                        "type": "token",
-                        "text": token
-                    }) + "\n\n"
+                    yield "data: " + json.dumps({"type": "token", "text": token}) + "\n\n"
 
             if action == "search":
                 src = source_block(search_results_cache)
-
                 if src:
                     full_reply += src
-
-                    yield "data: " + json.dumps({
-                        "type": "token",
-                        "text": src
-                    }) + "\n\n"
+                    yield "data: " + json.dumps({"type": "token", "text": src}) + "\n\n"
 
         finally:
             full_reply = clean_model_output(full_reply, msg)
 
             if full_reply.strip():
-                push(cid, "user", msg)
-                push(cid, "bot", full_reply.strip())
+                if not skip_user_save and not saved_user:
+                    backend_add_message(cid, "user", msg)
+                backend_add_message(cid, "bot", full_reply.strip())
                 add_limit("chat")
 
             yield "data: " + json.dumps({
@@ -3129,19 +3156,11 @@ Answer based only on live web results. Do not guess.
                 "remaining": all_remaining()
             }) + "\n\n"
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream"
-    )
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")
 
 # ==================================================
 # RUN
 # ==================================================
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
-
-    app.run(
-        host="0.0.0.0",
-        port=port,
-        debug=False
-    )
+    app.run(host="0.0.0.0", port=port, debug=False)

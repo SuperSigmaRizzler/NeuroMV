@@ -1,14 +1,20 @@
 // =========================
 // NEUROMV ULTRA FINAL SCRIPT.JS
-// DEVICE/IP LIMIT UI + CHATGPT-STYLE LIMIT POPUP
-// STREAMING + PRIVATE + PREVIEW + EDIT + REGEN
+// BACKEND-FIRST HISTORY + BACKEND MEMORY DELETE
+// STREAMING + PRIVATE + PREVIEW + EDIT + REGEN + LIMIT POPUP
 // =========================
 
 // =========================
-// STORAGE
+// WIPE LEGACY LOCAL CHAT STORAGE
 // =========================
-let chats = JSON.parse(localStorage.getItem("neuromv_chats") || "[]");
-let privateChats = JSON.parse(localStorage.getItem("neuromv_private") || "[]");
+localStorage.removeItem("neuromv_chats");
+localStorage.removeItem("neuromv_private");
+
+// =========================
+// BACKEND STATE
+// =========================
+let chats = [];
+let privateChats = [];
 let current = localStorage.getItem("neuromv_current") || "";
 
 // =========================
@@ -78,7 +84,6 @@ let showingPrivate = false;
 let currentPrivate = false;
 
 const STREAM_TOKEN_DELAY = Number(localStorage.getItem("neuromv_stream_delay") || "35");
-
 let limitState = JSON.parse(localStorage.getItem("neuromv_limit_state") || "{}");
 
 // =========================
@@ -119,10 +124,6 @@ function sleep(ms){
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function uid(){
-  return "c" + Date.now() + Math.floor(Math.random() * 99999);
-}
-
 function esc(t){
   return String(t ?? "")
     .replace(/&/g,"&amp;")
@@ -147,14 +148,16 @@ function safeLang(lang){
   return x || "text";
 }
 
-function saveData(){
-  localStorage.setItem("neuromv_chats", JSON.stringify(chats));
-  localStorage.setItem("neuromv_private", JSON.stringify(privateChats));
+function saveCurrent(){
   localStorage.setItem("neuromv_current", current || "");
 }
 
+function getListByPrivacy(isPrivate=false){
+  return isPrivate ? privateChats : chats;
+}
+
 function getChatById(id,isPrivate=false){
-  return isPrivate ? privateChats.find(x => x.id === id) : chats.find(x => x.id === id);
+  return getListByPrivacy(isPrivate).find(x => x.id === id);
 }
 
 function getAnyChatById(id){
@@ -203,13 +206,190 @@ function formatSize(bytes){
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
-function cleanupEmptyChats(){
-  chats = chats.filter(c => Array.isArray(c.msg) && c.msg.length > 0);
-  privateChats = privateChats.filter(c => Array.isArray(c.msg) && c.msg.length > 0);
-}
-
 function removeEmojis(text){
   return String(text || "").replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu,"");
+}
+
+// =========================
+// BACKEND API
+// =========================
+async function apiForm(url, data={}){
+  const fd = new FormData();
+
+  Object.entries(data).forEach(([k,v])=>{
+    fd.append(k, v);
+  });
+
+  appendIdentity(fd);
+
+  const res = await fetch(url,{
+    method:"POST",
+    body:fd
+  });
+
+  return await res.json();
+}
+
+async function loadBackendChats(privateMode=false){
+  try{
+    const data = await apiForm("/chats",{
+      private: privateMode ? "1" : "0"
+    });
+
+    if(privateMode){
+      privateChats = data.chats || [];
+    }else{
+      chats = data.chats || [];
+    }
+
+    if(current){
+      const exists = chats.some(c => c.id === current) || privateChats.some(c => c.id === current);
+      if(!exists){
+        current = "";
+        currentPrivate = false;
+        saveCurrent();
+      }
+    }
+  }catch{
+    if(privateMode) privateChats = [];
+    else chats = [];
+  }
+}
+
+async function createBackendChat(title="New Chat",privateMode=false){
+  const data = await apiForm("/chat/create",{
+    title,
+    private: privateMode ? "1" : "0"
+  });
+
+  if(data.ok && data.chat){
+    const c = {
+      ...data.chat,
+      msg: data.chat.messages || []
+    };
+
+    if(privateMode){
+      privateChats.unshift(c);
+    }else{
+      chats.unshift(c);
+    }
+
+    return c;
+  }
+
+  return null;
+}
+
+async function loadBackendMessages(chatId,isPrivate=false){
+  if(!chatId) return null;
+
+  try{
+    const data = await apiForm("/chat/messages",{
+      chat_id: chatId
+    });
+
+    if(!data.ok || !data.chat) return null;
+
+    const c = {
+      ...data.chat,
+      msg: normalizeBackendMessages(data.messages || [])
+    };
+
+    const arr = isPrivate ? privateChats : chats;
+    const i = arr.findIndex(x => x.id === chatId);
+
+    if(i >= 0){
+      arr[i] = {...arr[i], ...c};
+    }else{
+      arr.unshift(c);
+    }
+
+    return c;
+  }catch{
+    return null;
+  }
+}
+
+function normalizeBackendMessages(messages){
+  return messages.map(m=>{
+    if(m.type === "attachment"){
+      return {type:"attachment", meta:m.meta || {}, role:m.role || "user"};
+    }
+
+    if(m.type === "image"){
+      if(m.url){
+        return {type:"image", url:m.url, role:m.role || "bot", text:m.text || ""};
+      }
+      return {role:m.role || "bot", text:m.text || "", type:"text"};
+    }
+
+    return {
+      role:m.role || "bot",
+      text:m.text || "",
+      type:"text"
+    };
+  });
+}
+
+async function deleteBackendChatMemory(chatId){
+  try{
+    await apiForm("/chat/delete",{chat_id:chatId});
+  }catch{}
+}
+
+async function deleteAllBackendMemory(){
+  try{
+    await apiForm("/chats/delete_all",{});
+  }catch{}
+}
+
+async function renameBackendChat(chatId,title){
+  try{
+    await apiForm("/chat/rename",{chat_id:chatId,title});
+  }catch{}
+}
+
+async function setBackendPrivate(chatId,privateMode){
+  try{
+    await apiForm("/chat/private",{
+      chat_id:chatId,
+      private: privateMode ? "1" : "0"
+    });
+  }catch{}
+}
+
+async function truncateBackendChat(chatId,index){
+  try{
+    await apiForm("/chat/truncate",{
+      chat_id:chatId,
+      index:String(index)
+    });
+  }catch{}
+}
+
+async function updateBackendUserMessage(chatId,index,text){
+  try{
+    await apiForm("/chat/update_user_message",{
+      chat_id:chatId,
+      index:String(index),
+      text
+    });
+  }catch{}
+}
+
+// Bisa dipakai dari console: clearNeuroMVAll()
+async function clearNeuroMVAll(){
+  chats = [];
+  privateChats = [];
+  current = "";
+  currentPrivate = false;
+  showingPrivate = false;
+  localStorage.removeItem("neuromv_current");
+  localStorage.removeItem("neuromv_limit_state");
+  await deleteAllBackendMemory();
+  renderHistory();
+  renderChat();
+  fetchLimits();
 }
 
 // =========================
@@ -233,7 +413,6 @@ function getRemain(kind){
   if(!limitState || (!limitState[kind] && limitState[kind] !== 0)){
     return null;
   }
-
   return Number(limitState[kind]);
 }
 
@@ -306,17 +485,7 @@ function applyLimitUI(){
 
 async function fetchLimits(){
   try{
-    const fd = new FormData();
-    appendIdentity(fd);
-
-    const res = await fetch("/limits",{
-      method:"POST",
-      body:fd
-    });
-
-    if(!res.ok) return;
-
-    const data = await res.json();
+    const data = await apiForm("/limits",{});
     updateLimitStateFromPayload(data);
   }catch{}
 }
@@ -440,7 +609,6 @@ function makeSmartTitle(text,file){
 
 async function updateChatTitleSmart(chatId,msg,reply,file){
   const c = getAnyChatById(chatId);
-
   if(!c) return;
 
   if(c.autoTitleDone){
@@ -451,56 +619,46 @@ async function updateChatTitleSmart(chatId,msg,reply,file){
 
   if(userCount > 1){
     c.autoTitleDone = true;
-    saveData();
     return;
   }
 
   c.title = makeSmartTitle(msg || file?.name || "",file);
   c.autoTitleDone = true;
-
-  saveData();
   renderSidebarList();
 
   try{
-    const fd = new FormData();
-    fd.append("message", msg || "");
-    fd.append("reply", reply || "");
-    fd.append("file", file?.name || "");
-    appendIdentity(fd);
-
-    const res = await fetch("/title",{
-      method:"POST",
-      body:fd
+    const data = await apiForm("/title",{
+      chat_id: chatId,
+      message: msg || "",
+      reply: reply || "",
+      file: file?.name || ""
     });
 
-    if(!res.ok) return;
-
-    const data = await res.json();
     const title = String(data.title || "").trim();
 
     if(title && getAnyChatById(chatId)){
       c.title = title.slice(0,42);
       c.autoTitleDone = true;
-      saveData();
       renderSidebarList();
     }
   }catch{}
 }
 
-function createChatFromFirstMessage(msg,file){
-  const c = {
-    id: uid(),
-    title: makeSmartTitle(msg,file),
-    msg: [],
-    autoTitleDone: false
-  };
+async function createChatFromFirstMessage(msg,file){
+  const title = makeSmartTitle(msg,file);
+  const c = await createBackendChat(title,false);
 
-  chats.unshift(c);
+  if(!c) return null;
+
+  c.msg = [];
+  c.autoTitleDone = false;
+
   current = c.id;
   currentPrivate = false;
   showingPrivate = false;
+  saveCurrent();
 
-  saveData();
+  await loadBackendChats(false);
   renderHistory();
 
   return c;
@@ -554,7 +712,6 @@ function stopGenerating(){
   }catch{}
 
   delete generators[current];
-
   refreshSendButton();
 }
 
@@ -612,11 +769,9 @@ function linkifyHtml(html){
 
         while(p){
           const tag = (p.tagName || "").toLowerCase();
-
           if(["a","code","pre","script","style","button"].includes(tag)){
             return NodeFilter.FILTER_REJECT;
           }
-
           p = p.parentElement;
         }
 
@@ -738,9 +893,7 @@ function restoreSafeBackendHtml(html){
     /&lt;a href='([^']+)' target='_blank'&gt;([\s\S]*?)&lt;\/a&gt;/gi,
     (_,href,label)=>{
       const cleanHref = href.replace(/&amp;/g,"&");
-
       if(!isValidHttpUrl(cleanHref)) return esc(label);
-
       return `<a href="${escAttr(cleanHref)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
     }
   );
@@ -886,7 +1039,6 @@ function editUserMessage(index){
   if(chatIsGenerating(current)) return;
 
   const c = currentChat();
-
   if(!c || !c.msg[index] || c.msg[index].role !== "user") return;
 
   editingIndex = index;
@@ -904,7 +1056,6 @@ async function regenerateFromUser(index){
   }
 
   const c = currentChat();
-
   if(!c || !c.msg[index] || c.msg[index].role !== "user") return;
 
   const msg = c.msg[index].text || "";
@@ -912,11 +1063,11 @@ async function regenerateFromUser(index){
   const targetPrivate = currentPrivate;
 
   c.msg = c.msg.slice(0,index + 1);
+  await truncateBackendChat(current,index);
 
-  saveData();
   renderChat();
 
-  await sendStreamingMessage(msg,chatIdForTitle,false,targetPrivate);
+  await sendStreamingMessage(msg,chatIdForTitle,false,targetPrivate,false);
 }
 
 // =========================
@@ -938,14 +1089,15 @@ function initModeToggle(){
       <button type="button" data-mode="thinking">🧠 Deep Thinking</button>
     `;
 
-    const target =
-      document.querySelector(".chat-head") ||
-      document.querySelector(".topbar") ||
-      document.querySelector(".main") ||
-      form?.parentElement;
+    const main = document.querySelector(".main");
+    const mobileTopbar = document.querySelector(".mobile-topbar");
 
-    if(target){
-      target.insertBefore(wrap, target.firstChild);
+    if(main && mobileTopbar){
+      main.insertBefore(wrap, mobileTopbar.nextSibling);
+    }else if(main){
+      main.insertBefore(wrap, main.firstChild);
+    }else if(form?.parentElement){
+      form.parentElement.insertBefore(wrap, form.parentElement.firstChild);
     }
   }
 
@@ -960,7 +1112,6 @@ function updateModeUI(){
 
 document.addEventListener("click",(e)=>{
   const btn = e.target.closest("#modeToggle button[data-mode]");
-
   if(!btn) return;
 
   e.preventDefault();
@@ -986,7 +1137,6 @@ function hasUrl(text){
 
 function looksLikeImagePrompt(text){
   const low = text.toLowerCase();
-
   return [
     "buat gambar",
     "generate image",
@@ -1001,7 +1151,6 @@ function looksLikeImagePrompt(text){
 
 function looksLikeMemory(text){
   const low = text.toLowerCase();
-
   return [
     "masih ingat",
     "ingat tadi",
@@ -1074,9 +1223,7 @@ function createStatusBubble(label){
 
 function updateStatusBubble(row,label){
   if(!row) return;
-
   const text = row.querySelector(".glossy-text");
-
   if(text) text.textContent = label;
 }
 
@@ -1098,7 +1245,6 @@ async function getRouteAction(msg,signal,chatId=current,mode=aiMode){
     });
 
     const data = await res.json();
-
     return data.action || "chat";
   }catch{
     if(hasUrl(msg)) return "url";
@@ -1190,7 +1336,7 @@ function renderInputPreview(){
   }
 }
 
-function renderChatAttachment(meta,save=true){
+function renderChatAttachment(meta,save=false){
   if(!meta) return;
 
   const row = document.createElement("div");
@@ -1220,36 +1366,24 @@ function renderChatAttachment(meta,save=true){
   }
 
   chatBox.appendChild(row);
-
-  if(save){
-    const c = currentChat();
-
-    if(c){
-      c.msg.push({
-        type:"attachment",
-        meta
-      });
-      saveData();
-    }
-  }
-
   scrollBottom();
 }
 
 // =========================
 // INIT / NEW CHAT
 // =========================
-function ensureInitialState(){
-  cleanupEmptyChats();
-
-  if(current && !chats.some(c => c.id === current) && !privateChats.some(c => c.id === current)){
-    current = "";
-  }
+async function ensureInitialState(){
+  await loadBackendChats(false);
+  await loadBackendChats(true);
 
   currentPrivate = isPrivateChatId(current);
   showingPrivate = currentPrivate;
 
-  saveData();
+  if(current){
+    await loadBackendMessages(current,currentPrivate);
+  }
+
+  saveCurrent();
 }
 
 function newChat(){
@@ -1263,7 +1397,7 @@ function newChat(){
     input.classList.remove("editing-message");
   }
 
-  saveData();
+  saveCurrent();
   renderHistory();
   renderChat();
   refreshSendButton();
@@ -1285,17 +1419,18 @@ function renderHistory(){
 
     div.innerHTML = `
       <div class="history-top">
-        <div class="history-title">${esc(c.title)}</div>
+        <div class="history-title">${esc(c.title || "New Chat")}</div>
         <button class="icon-btn" type="button">⋮</button>
       </div>
     `;
 
-    div.onclick = ()=>{
+    div.onclick = async ()=>{
       current = c.id;
       currentPrivate = false;
       showingPrivate = false;
       editingIndex = null;
-      saveData();
+      saveCurrent();
+      await loadBackendMessages(current,false);
       renderHistory();
       renderChat();
       refreshSendButton();
@@ -1311,6 +1446,13 @@ function renderHistory(){
   });
 }
 
+async function showPrivate(){
+  showingPrivate = true;
+  await loadBackendChats(true);
+  renderPrivateHistory();
+  refreshSendButton();
+}
+
 function renderPrivateHistory(){
   showingPrivate = true;
   historyBox.innerHTML = "";
@@ -1320,11 +1462,16 @@ function renderPrivateHistory(){
   back.type = "button";
   back.innerHTML = "← Back to Chats";
 
-  back.onclick = ()=>{
+  back.onclick = async ()=>{
     showingPrivate = false;
     currentPrivate = false;
     current = chats[0]?.id || "";
-    saveData();
+    saveCurrent();
+
+    if(current){
+      await loadBackendMessages(current,false);
+    }
+
     renderHistory();
     renderChat();
     refreshSendButton();
@@ -1348,17 +1495,18 @@ function renderPrivateHistory(){
 
     div.innerHTML = `
       <div class="history-top">
-        <div class="history-title">🔒 ${esc(c.title)}</div>
+        <div class="history-title">🔒 ${esc(c.title || "New Chat")}</div>
         <button class="icon-btn" type="button">⋮</button>
       </div>
     `;
 
-    div.onclick = ()=>{
+    div.onclick = async ()=>{
       current = c.id;
       currentPrivate = true;
       showingPrivate = true;
       editingIndex = null;
-      saveData();
+      saveCurrent();
+      await loadBackendMessages(current,true);
       renderPrivateHistory();
       renderChat();
       refreshSendButton();
@@ -1411,11 +1559,24 @@ function toggleMoreMenu(){
   closeMenus();
 
   const btn = document.querySelector(".dots-btn");
+  if(!btn) return;
 
-  if(!btn || !current) return;
+  if(!current){
+    const r = btn.getBoundingClientRect();
+    const menu = document.createElement("div");
+    menu.className = "mini-menu";
+    menu.style.position = "fixed";
+    menu.style.top = (r.bottom + 8) + "px";
+    menu.style.right = "10px";
+    menu.innerHTML = `
+      <button type="button" onclick="event.stopPropagation(); newChat(); closeMenus()">＋ New Chat</button>
+      <button type="button" onclick="event.stopPropagation(); openPrivate(); closeMenus()">🔒 Private</button>
+    `;
+    document.body.appendChild(menu);
+    return;
+  }
 
   const r = btn.getBoundingClientRect();
-
   const menu = document.createElement("div");
   menu.className = "mini-menu";
   menu.style.position = "fixed";
@@ -1456,7 +1617,9 @@ function renderChat(){
     return;
   }
 
-  if(c.msg.length === 0){
+  const messages = c.msg || [];
+
+  if(messages.length === 0){
     chatBox.innerHTML = `
       <div class="welcome">
         <h2>NeuroMV</h2>
@@ -1464,7 +1627,7 @@ function renderChat(){
       </div>
     `;
   }else{
-    c.msg.forEach((m,index)=>{
+    messages.forEach((m,index)=>{
       if(m.type === "image"){
         bubbleImage(m.url,false);
       }else if(m.type === "attachment"){
@@ -1512,7 +1675,7 @@ function bubble(text,role="bot",save=true,typing=false,index=null){
 
   if(typing && role === "bot"){
     let i = 0;
-    const speed = aiMode === "instant" ? 1 : 7;
+    const speed = aiMode === "instant" ? 1 : 4;
 
     function run(){
       if(i <= cleanText.length){
@@ -1537,19 +1700,14 @@ function bubble(text,role="bot",save=true,typing=false,index=null){
     const c = currentChat();
 
     if(c){
-      c.msg.push({
-        role,
-        text: cleanText,
-        type: "text"
-      });
-
+      c.msg = c.msg || [];
+      c.msg.push({role, text: cleanText, type: "text"});
       index = c.msg.length - 1;
 
       if(c.msg.length === 1 && role === "user"){
         c.title = makeSmartTitle(cleanText,null);
       }
 
-      saveData();
       renderSidebarList();
     }
   }
@@ -1575,13 +1733,9 @@ function bubbleImage(url,save=true){
 
   if(save){
     const c = currentChat();
-
     if(c){
-      c.msg.push({
-        type:"image",
-        url
-      });
-      saveData();
+      c.msg = c.msg || [];
+      c.msg.push({type:"image", url});
       renderSidebarList();
     }
   }
@@ -1604,22 +1758,15 @@ function createBotStreamingBubble(){
   return {row,box};
 }
 
-function saveBotMessageToChat(chatId,text,targetPrivate=false){
+function saveBotMessageToLocal(chatId,text,targetPrivate=false){
   const clean = cleanBackendStatus(cleanHtmlStyleLeaks(text || ""));
-
   if(!clean.trim()) return;
 
   let c = getChatById(chatId,targetPrivate) || getAnyChatById(chatId);
-
   if(!c) return;
 
-  c.msg.push({
-    role:"bot",
-    text:clean,
-    type:"text"
-  });
-
-  saveData();
+  c.msg = c.msg || [];
+  c.msg.push({role:"bot", text:clean, type:"text"});
   renderSidebarList();
 }
 
@@ -1640,7 +1787,7 @@ function ensureStreamBoxForGen(gen,targetChatId,targetIsPrivate){
 // =========================
 // STREAMING SEND
 // =========================
-async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true,targetPrivate=currentPrivate){
+async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true,targetPrivate=currentPrivate,saveUser=true){
   const controller = new AbortController();
 
   const targetChatId = chatIdForTitle;
@@ -1682,6 +1829,7 @@ async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true,ta
     fd.append("message",msg);
     fd.append("chat_id",targetChatId);
     fd.append("mode",modeAtStart);
+    fd.append("skip_user_save", saveUser ? "0" : "1");
     appendIdentity(fd);
 
     const res = await fetch("/chat_stream",{
@@ -1713,7 +1861,6 @@ async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true,ta
       }
 
       const {done,value} = await reader.read();
-
       if(done) break;
 
       buffer += decoder.decode(value,{stream:true});
@@ -1727,7 +1874,6 @@ async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true,ta
         }
 
         const line = part.trim();
-
         if(!line.startsWith("data:")) continue;
 
         const jsonText = line.replace(/^data:\s*/,"");
@@ -1767,13 +1913,9 @@ async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true,ta
               bubbleImage(data.url,true);
             }else{
               const c = getChatById(targetChatId,targetIsPrivate) || getAnyChatById(targetChatId);
-
               if(c){
-                c.msg.push({
-                  type:"image",
-                  url:data.url
-                });
-                saveData();
+                c.msg = c.msg || [];
+                c.msg.push({type:"image", url:data.url});
               }
             }
           }
@@ -1840,12 +1982,14 @@ async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true,ta
         applyHighlight();
       }
 
-      saveBotMessageToChat(targetChatId,full,targetIsPrivate);
+      saveBotMessageToLocal(targetChatId,full,targetIsPrivate);
 
       if(shouldUpdateTitle){
         updateChatTitleSmart(targetChatId,msg,full,null);
       }
     }
+
+    await loadBackendMessages(targetChatId,targetIsPrivate);
 
   }catch(err){
     if(gen.statusRow && document.body.contains(gen.statusRow)){
@@ -1861,7 +2005,7 @@ async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true,ta
       }
 
       if(savedText.trim()){
-        saveBotMessageToChat(targetChatId,savedText,targetIsPrivate);
+        saveBotMessageToLocal(targetChatId,savedText,targetIsPrivate);
       }
     }else{
       const text = "Connection error.";
@@ -1869,10 +2013,9 @@ async function sendStreamingMessage(msg,chatIdForTitle,shouldUpdateTitle=true,ta
       if(current === targetChatId && currentPrivate === targetIsPrivate){
         bubble(text,"bot",true,false);
       }else{
-        saveBotMessageToChat(targetChatId,text,targetIsPrivate);
+        saveBotMessageToLocal(targetChatId,text,targetIsPrivate);
       }
     }
-
   }finally{
     if(generators[targetChatId] === gen){
       delete generators[targetChatId];
@@ -1969,17 +2112,14 @@ async function sendNormalWithFile(msg,fileToSend,chatIdForTitle,targetPrivate=cu
         bubbleImage(data.url,true);
       }else{
         const c = getChatById(targetChatId,targetIsPrivate) || getAnyChatById(targetChatId);
-
         if(c){
-          c.msg.push({
-            type:"image",
-            url:data.url
-          });
-          saveData();
+          c.msg = c.msg || [];
+          c.msg.push({type:"image", url:data.url});
         }
       }
 
       updateChatTitleSmart(targetChatId,msg,"Image generated",fileToSend);
+      await loadBackendMessages(targetChatId,targetIsPrivate);
       return;
     }
 
@@ -1988,10 +2128,11 @@ async function sendNormalWithFile(msg,fileToSend,chatIdForTitle,targetPrivate=cu
     if(current === targetChatId && currentPrivate === targetIsPrivate){
       bubble(reply,"bot",true,modeAtStart === "thinking");
     }else{
-      saveBotMessageToChat(targetChatId,reply,targetIsPrivate);
+      saveBotMessageToLocal(targetChatId,reply,targetIsPrivate);
     }
 
     updateChatTitleSmart(targetChatId,msg,reply,fileToSend);
+    await loadBackendMessages(targetChatId,targetIsPrivate);
 
   }catch(err){
     if(gen.statusRow && document.body.contains(gen.statusRow)){
@@ -2004,10 +2145,9 @@ async function sendNormalWithFile(msg,fileToSend,chatIdForTitle,targetPrivate=cu
       if(current === targetChatId && currentPrivate === targetIsPrivate){
         bubble(text,"bot",true,false);
       }else{
-        saveBotMessageToChat(targetChatId,text,targetIsPrivate);
+        saveBotMessageToLocal(targetChatId,text,targetIsPrivate);
       }
     }
-
   }finally{
     if(generators[targetChatId] === gen){
       delete generators[targetChatId];
@@ -2070,41 +2210,53 @@ form.addEventListener("submit", async(e)=>{
     c.msg[editingIndex].text = msg;
     c.msg = c.msg.slice(0, editingIndex + 1);
 
+    await updateBackendUserMessage(current,editingIndex,msg);
+    await truncateBackendChat(current,editingIndex);
+
     if(editedFirst){
       c.title = makeSmartTitle(msg,null);
       c.autoTitleDone = false;
+      await renameBackendChat(current,c.title);
     }
 
-    saveData();
     renderChat();
 
     editingIndex = null;
     input.classList.remove("editing-message");
     input.value = "";
 
-    await sendStreamingMessage(msg,chatIdForTitle,editedFirst,targetPrivate);
+    await sendStreamingMessage(msg,chatIdForTitle,editedFirst,targetPrivate,false);
     return;
   }
 
   if(!currentChat()){
-    createChatFromFirstMessage(msg,fileToSend);
+    const created = await createChatFromFirstMessage(msg,fileToSend);
+    if(!created) return;
   }
 
   const chatIdForTitle = current;
   const targetPrivate = currentPrivate;
 
   const welcome = chatBox.querySelector(".welcome");
-
   if(welcome) welcome.remove();
 
+  const c = currentChat();
+  if(c){
+    c.msg = c.msg || [];
+  }
+
   if(metaToRender){
-    renderChatAttachment(metaToRender,true);
+    if(c) c.msg.push({type:"attachment", meta:metaToRender});
+    renderChatAttachment(metaToRender,false);
   }
 
   if(msg){
-    bubble(msg,"user",true,false);
+    if(c) c.msg.push({role:"user", text:msg, type:"text"});
+    bubble(msg,"user",false,false,(c?.msg?.length || 1) - 1);
   }else if(fileToSend){
-    bubble(`📎 ${fileToSend.name}`,"user",true,false);
+    const fileText = `📎 ${fileToSend.name}`;
+    if(c) c.msg.push({role:"user", text:fileText, type:"text"});
+    bubble(fileText,"user",false,false,(c?.msg?.length || 1) - 1);
   }
 
   input.value = "";
@@ -2112,7 +2264,7 @@ form.addEventListener("submit", async(e)=>{
   if(fileToSend){
     await sendNormalWithFile(msg,fileToSend,chatIdForTitle,targetPrivate);
   }else{
-    await sendStreamingMessage(msg,chatIdForTitle,true,targetPrivate);
+    await sendStreamingMessage(msg,chatIdForTitle,true,targetPrivate,true);
   }
 });
 
@@ -2128,9 +2280,7 @@ fileInput.addEventListener("change",()=>{
   }
 
   const f = fileInput.files[0];
-
   if(!f) return;
-
   setSelectedFile(f);
 });
 
@@ -2144,7 +2294,6 @@ function handlePasteImage(e){
   }
 
   const items = e.clipboardData?.items;
-
   if(!items) return;
 
   for(const item of items){
@@ -2157,9 +2306,7 @@ function handlePasteImage(e){
         const namedFile = new File(
           [file],
           `pasted-image-${Date.now()}.${ext}`,
-          {
-            type:item.type
-          }
+          {type:item.type}
         );
 
         setSelectedFile(namedFile);
@@ -2208,11 +2355,7 @@ input.addEventListener("keydown",(e)=>{
 // RENAME / DELETE
 // =========================
 function openRename(id,isPrivate=false){
-  renameTarget = {
-    id,
-    isPrivate
-  };
-
+  renameTarget = {id,isPrivate};
   renameInput.value = "";
   renameModal.classList.remove("hidden");
 }
@@ -2221,9 +2364,8 @@ function closeRename(){
   renameModal.classList.add("hidden");
 }
 
-function saveRename(){
+async function saveRename(){
   const val = renameInput.value.trim();
-
   if(!val || !renameTarget) return;
 
   const arr = renameTarget.isPrivate ? privateChats : chats;
@@ -2231,17 +2373,14 @@ function saveRename(){
 
   if(c) c.title = val;
 
-  saveData();
+  await renameBackendChat(renameTarget.id,val);
+
   renderSidebarList();
   closeRename();
 }
 
 function askDelete(id,isPrivate=false){
-  deleteTarget = {
-    id,
-    isPrivate
-  };
-
+  deleteTarget = {id,isPrivate};
   deleteModal.classList.remove("hidden");
 }
 
@@ -2249,8 +2388,10 @@ function closeDelete(){
   deleteModal.classList.add("hidden");
 }
 
-function confirmDelete(){
+async function confirmDelete(){
   if(!deleteTarget) return;
+
+  await deleteBackendChatMemory(deleteTarget.id);
 
   if(deleteTarget.isPrivate){
     privateChats = privateChats.filter(x => x.id !== deleteTarget.id);
@@ -2258,14 +2399,16 @@ function confirmDelete(){
     if(currentPrivate && current === deleteTarget.id){
       current = "";
       currentPrivate = false;
+      saveCurrent();
     }
 
-    saveData();
     closeDelete();
 
     if(showingPrivate){
+      await loadBackendChats(true);
       renderPrivateHistory();
     }else{
+      await loadBackendChats(false);
       renderHistory();
     }
 
@@ -2278,10 +2421,11 @@ function confirmDelete(){
 
   if(!currentPrivate && current === deleteTarget.id){
     current = "";
+    saveCurrent();
   }
 
-  saveData();
   closeDelete();
+  await loadBackendChats(false);
   renderHistory();
   renderChat();
   refreshSendButton();
@@ -2332,17 +2476,16 @@ function closePin(){
   pinMode = "";
 }
 
-function submitPin(){
+async function submitPin(){
   const val = pinInput.value.trim();
-
   if(!val) return;
 
   if(pinMode === "create" || pinMode === "createOpen"){
     savedPin = val;
     localStorage.setItem("neuromv_pin",savedPin);
 
-    if(pinMode === "create") doPrivate();
-    if(pinMode === "createOpen") showPrivate();
+    if(pinMode === "create") await doPrivate();
+    if(pinMode === "createOpen") await showPrivate();
 
     closePin();
     return;
@@ -2353,55 +2496,56 @@ function submitPin(){
     return;
   }
 
-  if(pinMode === "verify") doPrivate();
-  if(pinMode === "open") showPrivate();
-  if(pinMode === "unprivate") doUnprivate();
+  if(pinMode === "verify") await doPrivate();
+  if(pinMode === "open") await showPrivate();
+  if(pinMode === "unprivate") await doUnprivate();
 
   closePin();
 }
 
-function doPrivate(){
-  const i = chats.findIndex(x => x.id === pendingPrivateId);
+async function doPrivate(){
+  const id = pendingPrivateId;
+  if(!id) return;
 
-  if(i === -1) return;
+  await setBackendPrivate(id,true);
 
-  privateChats.unshift(chats[i]);
-  chats.splice(i,1);
+  chats = chats.filter(x => x.id !== id);
 
-  if(!currentPrivate && current === pendingPrivateId){
+  if(!currentPrivate && current === id){
     current = "";
+    saveCurrent();
   }
 
   currentPrivate = false;
   showingPrivate = false;
 
-  saveData();
+  await loadBackendChats(false);
   renderHistory();
   renderChat();
   refreshSendButton();
 }
 
-function doUnprivate(){
-  const i = privateChats.findIndex(x => x.id === pendingPrivateId);
+async function doUnprivate(){
+  const id = pendingPrivateId;
+  if(!id) return;
 
-  if(i === -1) return;
+  await setBackendPrivate(id,false);
 
-  chats.unshift(privateChats[i]);
-  privateChats.splice(i,1);
+  privateChats = privateChats.filter(x => x.id !== id);
 
-  current = chats[0].id;
   currentPrivate = false;
   showingPrivate = false;
 
-  saveData();
+  await loadBackendChats(false);
+  current = chats[0]?.id || "";
+  saveCurrent();
+
+  if(current){
+    await loadBackendMessages(current,false);
+  }
+
   renderHistory();
   renderChat();
-  refreshSendButton();
-}
-
-function showPrivate(){
-  showingPrivate = true;
-  renderPrivateHistory();
   refreshSendButton();
 }
 
@@ -2435,10 +2579,20 @@ document.addEventListener("click",(e)=>{
 // =========================
 // START
 // =========================
-initModeToggle();
-ensureInitialState();
-renderHistory();
-renderChat();
-renderInputPreview();
-refreshSendButton();
-fetchLimits();
+async function startNeuroMV(){
+  initModeToggle();
+  await ensureInitialState();
+
+  if(currentPrivate){
+    renderPrivateHistory();
+  }else{
+    renderHistory();
+  }
+
+  renderChat();
+  renderInputPreview();
+  refreshSendButton();
+  fetchLimits();
+}
+
+startNeuroMV();
