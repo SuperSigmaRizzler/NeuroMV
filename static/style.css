@@ -1503,3 +1503,94 @@ body{
   width:100%;
   margin-bottom:8px;
 }
+
+/* ==================================================
+   NEUROMV FINAL FIX — CHAT BUBBLE ALIGNMENT
+   Fix user/bot bubble muncul di tengah layar
+================================================== */
+
+/* Chat area harus jadi kolom normal, bukan center semua */
+.chat-area,
+#chat{
+  display:flex !important;
+  flex-direction:column !important;
+  align-items:stretch !important;
+  justify-content:flex-start !important;
+}
+
+/* Row user full width dan bubble ke kanan */
+.user-row{
+  width:100% !important;
+  display:flex !important;
+  flex-direction:column !important;
+  align-items:flex-end !important;
+  justify-content:flex-start !important;
+  margin:10px 0 !important;
+}
+
+/* Row bot full width dan bubble ke kiri */
+.bot-row{
+  width:100% !important;
+  display:flex !important;
+  flex-direction:column !important;
+  align-items:flex-start !important;
+  justify-content:flex-start !important;
+  margin:10px 0 !important;
+}
+
+/* Bubble user wajib kanan */
+.user-bubble{
+  align-self:flex-end !important;
+  margin-left:auto !important;
+  margin-right:0 !important;
+  max-width:min(680px, 82%) !important;
+}
+
+/* Bubble bot wajib kiri */
+.bot-bubble{
+  align-self:flex-start !important;
+  margin-left:0 !important;
+  margin-right:auto !important;
+  max-width:min(780px, 88%) !important;
+}
+
+/* Attachment user juga kanan */
+.user-attachment-card{
+  align-self:flex-end !important;
+  margin-left:auto !important;
+  margin-right:0 !important;
+}
+
+/* Actions user ikut kanan */
+.user-message-actions,
+.message-actions.user-message-actions{
+  align-self:flex-end !important;
+  justify-content:flex-end !important;
+  margin-right:6px !important;
+}
+
+/* Status / thinking bubble tetap kiri seperti assistant */
+.status-row{
+  width:100% !important;
+  display:flex !important;
+  flex-direction:column !important;
+  align-items:flex-start !important;
+}
+
+/* Welcome tetap center, hanya welcome saja */
+.welcome{
+  align-self:center !important;
+  text-align:center !important;
+  margin:auto !important;
+}
+
+/* Mobile safe */
+@media(max-width:700px){
+  .user-bubble{
+    max-width:86% !important;
+  }
+
+  .bot-bubble{
+    max-width:92% !important;
+  }
+}
