@@ -2577,6 +2577,101 @@ document.addEventListener("click",(e)=>{
 });
 
 // =========================
+// NEUROMV SAFE HEADING JUMBO PATCH
+// Append-only patch, does not remove old markdown/link system
+// =========================
+(function(){
+  function escapeMini(t){
+    return String(t ?? "")
+      .replace(/&/g,"&amp;")
+      .replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;");
+  }
+
+  function applyHeadingHtml(html){
+    const root = document.createElement("div");
+    root.innerHTML = String(html || "");
+
+    const skipTags = new Set([
+      "PRE",
+      "CODE",
+      "SCRIPT",
+      "STYLE",
+      "TEXTAREA",
+      "BUTTON"
+    ]);
+
+    function walk(node){
+      Array.from(node.childNodes).forEach(child=>{
+        if(child.nodeType === 1){
+          if(skipTags.has(child.tagName)) return;
+          walk(child);
+          return;
+        }
+
+        if(child.nodeType !== 3) return;
+
+        const raw = child.nodeValue || "";
+        const trimmed = raw.trim();
+
+        const m = trimmed.match(/^(#{1,3})\s+(.+)$/);
+        if(!m) return;
+
+        const parent = child.parentElement;
+        if(!parent) return;
+        if(/^H[1-6]$/.test(parent.tagName)) return;
+
+        const level = Math.min(3, m[1].length);
+        const h = document.createElement("h" + level);
+        h.className = "neuromv-heading";
+        h.textContent = m[2];
+
+        child.parentNode.replaceChild(h, child);
+      });
+    }
+
+    walk(root);
+
+    // Remove extra <br> right after headings
+    return root.innerHTML.replace(
+      /(<h[123][^>]*>[\s\S]*?<\/h[123]>)\s*<br\s*\/?>/gi,
+      "$1"
+    );
+  }
+
+  function fallbackMarkdown(text){
+    return applyHeadingHtml(
+      escapeMini(text).replace(/\n/g,"<br>")
+    );
+  }
+
+  function wrapMarkdownFunction(name){
+    const old = window[name];
+
+    if(typeof old === "function" && !old.__neuromvHeadingWrapped){
+      const wrapped = function(text, ...rest){
+        const html = old.call(this, text, ...rest);
+        return applyHeadingHtml(html);
+      };
+
+      wrapped.__neuromvHeadingWrapped = true;
+      window[name] = wrapped;
+      return;
+    }
+
+    if(typeof old !== "function"){
+      window[name] = fallbackMarkdown;
+    }
+  }
+
+  wrapMarkdownFunction("formatBotText");
+  wrapMarkdownFunction("parseMarkdown");
+  wrapMarkdownFunction("markdownToHtml");
+  wrapMarkdownFunction("renderMarkdown");
+})();
+
+// =========================
 // START
 // =========================
 async function startNeuroMV(){
