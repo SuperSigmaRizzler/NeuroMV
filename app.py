@@ -5016,6 +5016,73 @@ except Exception:
     pass
 
 # ==================================================
+# NEUROMV SOURCES UI PATCH
+# Google AI Mode-like Sources button
+# Paste BEFORE RUN
+# ==================================================
+
+def source_block(results):
+    """
+    Return a hidden marker for frontend.
+    Frontend will render this as a Sources button + floating source panel.
+    """
+    try:
+        clean = []
+
+        for r in (results or [])[:8]:
+            title = str(r.get("title", "") or "").strip()
+            text = str(r.get("text", "") or "").strip()
+            link = str(r.get("link", "") or "").strip()
+            source = str(r.get("source", "") or "Web").strip()
+
+            if not title and not link:
+                continue
+
+            clean.append({
+                "title": title[:160] or source,
+                "text": text[:260],
+                "link": link,
+                "source": source[:60]
+            })
+
+        if not clean:
+            return ""
+
+        payload = json.dumps(clean, ensure_ascii=False)
+        token = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("utf-8").rstrip("=")
+
+        return f"\n\n[[NEUROMV_SOURCES:{token}]]"
+
+    except Exception:
+        return ""
+
+
+try:
+    _neuromv_sources_base_build_messages = build_messages
+
+    def build_messages(cid, msg, mode="thinking", style_msg=None):
+        msgs = _neuromv_sources_base_build_messages(cid, msg, mode, style_msg)
+
+        source_instruction = """
+Source display rule:
+- If web/search results are provided, do not paste raw full URLs in the answer.
+- The frontend will show sources through a clickable Sources button.
+- Mention source names only when useful.
+- Keep the answer clean and natural.
+"""
+
+        insert_at = max(1, len(msgs) - 1)
+        msgs.insert(insert_at, {
+            "role": "system",
+            "content": source_instruction
+        })
+
+        return msgs
+
+except Exception:
+    pass
+
+# ==================================================
 # RUN
 # ==================================================
 if __name__ == "__main__":
