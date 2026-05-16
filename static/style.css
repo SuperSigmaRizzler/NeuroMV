@@ -1738,3 +1738,66 @@ textarea.limit-chat-reached,
   background:rgba(255,255,255,.15);
   color:#fff;
 }
+
+/* ==================================================
+   NEUROMV CINEMATIC MARKDOWN HEADINGS
+   For big ChatGPT-like headings inside bot response
+================================================== */
+
+.bot-bubble h1,
+.bot-bubble h2,
+.bot-bubble h3{
+  margin: 10px 0 8px !important;
+  padding: 0 !important;
+  line-height: 1.18 !important;
+  letter-spacing: -0.02em !important;
+  color: #fff !important;
+  font-weight: 800 !important;
+}
+
+.bot-bubble h1{
+  font-size: clamp(24px, 4.5vw, 34px) !important;
+}
+
+.bot-bubble h2{
+  font-size: clamp(21px, 3.7vw, 28px) !important;
+}
+
+.bot-bubble h3{
+  font-size: clamp(18px, 3vw, 22px) !important;
+}
+
+.bot-bubble{
+  font-size: 16px !important;
+  line-height: 1.65 !important;
+}
+
+.bot-bubble p,
+.bot-bubble li{
+  font-size: 16px !important;
+  line-height: 1.65 !important;
+}
+
+.user-bubble{
+  font-size: 15.8px !important;
+  line-height: 1.55 !important;
+}
+
+/* Mobile biar tetap besar tapi tidak meledak */
+@media(max-width:700px){
+  .bot-bubble h1{
+    font-size: 26px !important;
+  }
+
+  .bot-bubble h2{
+    font-size: 23px !important;
+  }
+
+  .bot-bubble h3{
+    font-size: 19px !important;
+  }
+
+  .bot-bubble{
+    font-size: 16px !important;
+  }
+}
