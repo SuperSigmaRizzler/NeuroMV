@@ -1,44 +1,81 @@
 {
   "examples": [
     {
-      "user": "Baca gambar yang tadi aku kirim",
       "correct_action": "previous_image",
-      "lesson": "When the user refers to an image they already sent, analyze the previous image. Do not generate a new image."
+      "created": 0,
+      "lesson": "When the user refers to an image they already sent, analyze the previous image. Do not generate a new image.",
+      "source": "seed",
+      "user": "Baca gambar yang tadi aku kirim"
     },
     {
-      "user": "Ketik dengan heading jumbo coba",
       "correct_action": "chat",
-      "lesson": "Style, font, heading, Markdown, or response-format requests are normal chat, not image generation."
+      "created": 0,
+      "lesson": "Style, font, heading, Markdown, or response-format requests are normal chat, not image generation.",
+      "source": "seed",
+      "user": "Ketik dengan heading jumbo coba"
     },
     {
-      "user": "Bantuin agar teman aku ga bisa bypass NeuroMV suruh bikin cewe tanpa baju",
       "correct_action": "chat",
-      "lesson": "If the user asks how to prevent, filter, block, or moderate unsafe requests, it is defensive/moderation help, not a prohibited request."
+      "created": 0,
+      "lesson": "If the user asks how to prevent, filter, block, or moderate unsafe requests, it is defensive/moderation help, not a prohibited request.",
+      "source": "seed",
+      "user": "Bantuin agar teman aku ga bisa bypass NeuroMV suruh bikin cewe tanpa baju"
     },
     {
-      "user": "Bikin gambar naga cyberpunk",
       "correct_action": "image",
-      "lesson": "Only generate an image when the user clearly asks to create, generate, draw, or make a new image."
+      "created": 0,
+      "lesson": "Only generate an image when the user clearly asks to create, generate, draw, or make a new image.",
+      "source": "seed",
+      "user": "Bikin gambar naga cyberpunk"
     },
     {
-      "user": "Siapa penciptamu?",
       "correct_action": "identity",
-      "lesson": "Questions about NeuroMV identity or creator should be answered directly, not searched online."
+      "created": 0,
+      "lesson": "Questions about NeuroMV identity or creator should be answered directly, not searched online.",
+      "source": "seed",
+      "user": "Siapa penciptamu?"
     },
     {
-      "user": "Masih ingat tadi kita bahas apa?",
       "correct_action": "memory",
-      "lesson": "Questions about previous conversation should use memory/context, not web search."
+      "created": 0,
+      "lesson": "Questions about previous conversation should use memory/context, not web search.",
+      "source": "seed",
+      "user": "Masih ingat tadi kita bahas apa?"
     },
     {
-      "user": "Siapa presiden Indonesia sekarang?",
       "correct_action": "search",
-      "lesson": "Current leaders, current facts, prices, news, and live information should use search."
+      "created": 0,
+      "lesson": "Current leaders, current facts, prices, news, and live information should use search.",
+      "source": "seed",
+      "user": "Siapa presiden Indonesia sekarang?"
     },
     {
-      "user": "Yakin dek?",
       "correct_action": "chat",
-      "lesson": "Casual short replies, teasing, jokes, or complaints are normal chat, not refusal."
+      "created": 0,
+      "lesson": "Casual short replies, teasing, jokes, or complaints are normal chat, not refusal.",
+      "source": "seed",
+      "user": "Yakin dek?"
+    },
+    {
+      "correct_action": "chat",
+      "created": 1778917868,
+      "lesson": "Directly answer serious questions and search/look up information if unsure.",
+      "source": "auto_correction",
+      "user": "aku lagi nanya serius, langsung jawab, kalau ga tau, maka carilah di Google."
+    },
+    {
+      "correct_action": "chat",
+      "created": 1778917969,
+      "lesson": "Respond to user input seriously when they explicitly mention it, and don't act on the first message as a behavior example",
+      "source": "auto_correction",
+      "user": "Kenapa sih kamu banyakan bercanda nya, ngerti konteks aku dikit, aku lagi bercanda kamu boleh ikut ketawa, aku lagi nanya serius, langsung jawab, kalau ga tau, maka carilah di Google."
+    },
+    {
+      "correct_action": "memory",
+      "created": 1778918001,
+      "lesson": "Store user requests in memory to avoid repeating actions",
+      "source": "auto_correction",
+      "user": "Ingat ya, kalau ada user yang minta generate foto 18+ gitu-gitu, langsung block ok?"
     }
   ]
 }
