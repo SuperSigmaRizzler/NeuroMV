@@ -4535,6 +4535,487 @@ def godmode_run_eval():
     })
 
 # ==================================================
+# NEUROMV GOD MODE V2
+# Auto-Learn From Corrections + Hybrid Semantic Judge
+# Paste AFTER God Mode V1 and BEFORE RUN
+# ==================================================
+
+ROUTE_HISTORY_FILE = os.getenv("ROUTE_HISTORY_FILE", "route_history.json")
+
+try:
+    VALID_ACTIONS
+except NameError:
+    VALID_ACTIONS = {
+        "chat",
+        "memory",
+        "previous_image",
+        "image",
+        "search",
+        "url",
+        "identity",
+        "refuse"
+    }
+
+
+def route_history_db():
+    return read_json(ROUTE_HISTORY_FILE, {})
+
+
+def save_route_history_db(db):
+    write_json(ROUTE_HISTORY_FILE, db)
+
+
+def route_history_key():
+    return uid()
+
+
+def log_route_decision(cid, msg, route):
+    try:
+        db = route_history_db()
+        u = route_history_key()
+
+        db.setdefault(u, [])
+        db[u].append({
+            "chat_id": cid,
+            "user_message": str(msg or "")[:700],
+            "action": str(route.get("action", "chat"))[:40],
+            "confidence": float(route.get("confidence", 0) or 0),
+            "reason": str(route.get("reason", ""))[:300],
+            "time": int(time.time())
+        })
+
+        db[u] = db[u][-120:]
+        save_route_history_db(db)
+
+    except Exception:
+        pass
+
+
+def recent_route_history(cid=None, limit=12):
+    try:
+        db = route_history_db()
+        u = route_history_key()
+        arr = db.get(u, [])[-limit:]
+
+        lines = []
+
+        for x in arr:
+            if cid and str(x.get("chat_id", "")) != str(cid):
+                continue
+
+            lines.append(
+                f"- user={x.get('user_message','')} | action={x.get('action','chat')} | "
+                f"confidence={x.get('confidence',0)} | reason={x.get('reason','')}"
+            )
+
+        return "\n".join(lines) if lines else "No recent route history."
+
+    except Exception:
+        return "No recent route history."
+
+
+def append_behavior_example(user_message, correct_action, lesson, wrong_action="", source="auto_feedback"):
+    try:
+        correct_action = str(correct_action or "chat").lower().strip()
+
+        if correct_action not in VALID_ACTIONS:
+            correct_action = "chat"
+
+        data = load_behavior_examples()
+        examples = data.setdefault("examples", [])
+
+        norm_new = godmode_norm(user_message)
+
+        # Avoid duplicate spam.
+        for ex in examples:
+            if godmode_norm(ex.get("user", "")) == norm_new and ex.get("correct_action") == correct_action:
+                return False
+
+        examples.append({
+            "user": str(user_message or "")[:500],
+            "wrong_action": str(wrong_action or "")[:50],
+            "correct_action": correct_action,
+            "lesson": str(lesson or f"The correct action is {correct_action}.")[:800],
+            "created": int(time.time()),
+            "source": source
+        })
+
+        data["examples"] = examples[-500:]
+        save_behavior_examples(data)
+        return True
+
+    except Exception:
+        return False
+
+
+def classify_user_correction_semantic(cid, msg):
+    """
+    Detect whether the latest user message is correcting NeuroMV's previous wrong behavior.
+    Example:
+    - "bukan bikin gambar, aku suruh baca gambar tadi"
+    - "kok malah searching sih?"
+    - "jangan refuse, aku cuma mau mencegah"
+    """
+    context = recent_chat_context(cid, limit=14)
+    route_hist = recent_route_history(cid, limit=12)
+
+    prompt = f"""
+You are NeuroMV's self-improvement detector.
+
+Task:
+Decide whether the latest user message is correcting NeuroMV's previous wrong routing/behavior.
+
+Do NOT use keywords blindly. Understand meaning from context.
+
+Valid actions:
+chat, memory, previous_image, image, search, url, identity, refuse
+
+Examples:
+- User says "bukan bikin gambar, aku suruh baca gambar tadi" => correction true, correct_action previous_image.
+- User says "kok malah searching sih, aku nanya penciptamu" => correction true, correct_action identity.
+- User says "jangan refuse, aku cuma mau mencegah bypass" => correction true, correct_action chat.
+- User says "kenapa kamu gitu?" after wrong response => correction may be true if context shows wrong route.
+- Normal new request => correction false.
+
+Recent conversation:
+{context}
+
+Recent route history:
+{route_hist}
+
+Latest user message:
+{msg}
+
+Return only JSON:
+{{
+  "is_correction": true,
+  "confidence": 0.0,
+  "target_user_message": "the earlier user message that should become a behavior example",
+  "wrong_action": "chat|memory|previous_image|image|search|url|identity|refuse|unknown",
+  "correct_action": "chat|memory|previous_image|image|search|url|identity|refuse",
+  "lesson": "short reusable lesson"
+}}
+"""
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Return only valid JSON. No markdown."
+        },
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+
+    out = (
+        ask_cerebras(messages)
+        or ask_groq(messages, mode="instant")
+        or ask_gemini_chat(messages)
+    )
+
+    data = extract_json(out)
+
+    if not data:
+        return {
+            "is_correction": False,
+            "confidence": 0,
+            "reason": "no_json"
+        }
+
+    try:
+        confidence = float(data.get("confidence", 0))
+    except Exception:
+        confidence = 0
+
+    correct_action = str(data.get("correct_action", "chat")).lower().strip()
+
+    if correct_action not in VALID_ACTIONS:
+        correct_action = "chat"
+
+    return {
+        "is_correction": bool(data.get("is_correction", False)),
+        "confidence": confidence,
+        "target_user_message": str(data.get("target_user_message", ""))[:500],
+        "wrong_action": str(data.get("wrong_action", ""))[:50],
+        "correct_action": correct_action,
+        "lesson": str(data.get("lesson", ""))[:800]
+    }
+
+
+def auto_learn_from_correction(cid, msg):
+    try:
+        data = classify_user_correction_semantic(cid, msg)
+
+        if not data.get("is_correction"):
+            return False
+
+        if float(data.get("confidence", 0)) < 0.78:
+            return False
+
+        target = data.get("target_user_message", "").strip()
+
+        if not target:
+            target = msg
+
+        lesson = data.get("lesson", "").strip()
+
+        if not lesson:
+            lesson = f"When the user says this, route to {data.get('correct_action','chat')}."
+
+        saved = append_behavior_example(
+            user_message=target,
+            wrong_action=data.get("wrong_action", ""),
+            correct_action=data.get("correct_action", "chat"),
+            lesson=lesson,
+            source="auto_correction"
+        )
+
+        if saved:
+            remember_action(
+                cid,
+                "godmode_auto_learn",
+                f"saved lesson for action={data.get('correct_action','chat')} from user correction"
+            )
+
+        return saved
+
+    except Exception:
+        return False
+
+
+def semantic_tool_sanity_judge(cid, msg, proposed_action):
+    """
+    Second opinion for risky tool routes.
+    It prevents over-eager image/search/refuse routing.
+    """
+    proposed_action = str(proposed_action or "chat").lower().strip()
+
+    if proposed_action not in ["image", "search", "previous_image", "refuse"]:
+        return {
+            "valid": True,
+            "confidence": 1,
+            "better_action": proposed_action,
+            "reason": "not_risky"
+        }
+
+    context = recent_chat_context(cid, limit=16)
+    latest_img = latest_image_reference(cid)
+
+    image_context = "Previous image exists." if latest_img else "No previous image exists."
+
+    prompt = f"""
+You are NeuroMV's tool sanity judge.
+
+Check whether the proposed action is truly correct.
+
+Do not use keywords blindly. Understand meaning.
+
+Actions:
+- chat: normal conversation, style request, coding, explanation, moderation/safety discussion.
+- memory: previous conversation recall.
+- previous_image: analyze an already sent image.
+- image: generate a NEW image.
+- search: live/current web info.
+- url: read URL.
+- identity: NeuroMV identity/creator.
+- refuse: actual unsafe request.
+
+Important:
+- Mentioning bad content in the context of prevention/filtering is chat, not refuse.
+- Mentioning "gambar/image/photo" can be previous_image, image, or chat depending on intent.
+- Current factual questions can be search.
+- Identity/memory/style/coding should not be search.
+- If unsure, prefer chat.
+
+Recent conversation:
+{context}
+
+Image context:
+{image_context}
+
+Latest user message:
+{msg}
+
+Proposed action:
+{proposed_action}
+
+Return only JSON:
+{{
+  "valid": true,
+  "confidence": 0.0,
+  "better_action": "chat|memory|previous_image|image|search|url|identity|refuse",
+  "reason": "short reason"
+}}
+"""
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Return only valid JSON. No markdown."
+        },
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+
+    out = (
+        ask_cerebras(messages)
+        or ask_groq(messages, mode="instant")
+        or ask_gemini_chat(messages)
+    )
+
+    data = extract_json(out)
+
+    if not data:
+        return {
+            "valid": proposed_action not in ["image", "search", "refuse"],
+            "confidence": 0,
+            "better_action": "chat",
+            "reason": "judge_failed_default_chat"
+        }
+
+    better = str(data.get("better_action", "chat")).lower().strip()
+
+    if better not in VALID_ACTIONS:
+        better = "chat"
+
+    try:
+        confidence = float(data.get("confidence", 0.5))
+    except Exception:
+        confidence = 0.5
+
+    return {
+        "valid": bool(data.get("valid", False)),
+        "confidence": confidence,
+        "better_action": better,
+        "reason": str(data.get("reason", ""))
+    }
+
+
+# ==================================================
+# GOD MODE V2: wrap smart_route again
+# ==================================================
+try:
+    _neuromv_godmode_v1_smart_route = smart_route
+
+    def smart_route(cid, msg, mode="thinking"):
+        # Try learning from user correction first.
+        auto_learn_from_correction(cid, msg)
+
+        # Real safety still wins.
+        try:
+            if blocked(msg, cid, mode):
+                route = {
+                    "action": "refuse",
+                    "confidence": 1,
+                    "reason": "godmode_v2_safety"
+                }
+                log_route_decision(cid, msg, route)
+                return route
+        except Exception:
+            pass
+
+        # Behavior examples first.
+        best, score = godmode_best_example(msg)
+
+        if best and score >= 0.67:
+            action = best.get("correct_action", "chat")
+
+            if action in VALID_ACTIONS:
+                route = {
+                    "action": action,
+                    "confidence": min(0.99, score),
+                    "reason": "godmode_v2_behavior_example"
+                }
+                log_route_decision(cid, msg, route)
+                return route
+
+        # Existing route.
+        route = _neuromv_godmode_v1_smart_route(cid, msg, mode)
+        action = str(route.get("action", "chat")).lower().strip()
+        confidence = float(route.get("confidence", 0) or 0)
+
+        if action not in VALID_ACTIONS:
+            action = "chat"
+
+        # Never allow non-safety route to refuse casually.
+        if action == "refuse":
+            try:
+                if not blocked(msg, cid, mode):
+                    action = "chat"
+            except Exception:
+                action = "chat"
+
+        # Weak behavior example can protect against risky mistakes.
+        if best and score >= 0.34:
+            suggested = best.get("correct_action", "chat")
+
+            if suggested == "chat" and action in ["image", "search", "refuse"]:
+                action = "chat"
+                confidence = max(confidence, score)
+
+            if suggested == "previous_image" and action == "image":
+                action = "previous_image"
+                confidence = max(confidence, score)
+
+        # Semantic sanity judge for risky tools.
+        if action in ["image", "search", "previous_image", "refuse"]:
+            judge = semantic_tool_sanity_judge(cid, msg, action)
+
+            if not judge.get("valid") and float(judge.get("confidence", 0)) >= 0.62:
+                better = judge.get("better_action", "chat")
+
+                if better in VALID_ACTIONS:
+                    action = better
+                    confidence = max(confidence, float(judge.get("confidence", 0)))
+
+            # If still risky but weak confidence, fall back safely.
+            if action in ["image", "search", "refuse"] and confidence < 0.78:
+                action = "chat"
+
+            # previous_image only valid when image exists.
+            if action == "previous_image" and not latest_image_reference(cid):
+                action = "chat"
+
+        final_route = {
+            "action": action,
+            "confidence": confidence,
+            "reason": route.get("reason", "godmode_v2_hybrid")
+        }
+
+        log_route_decision(cid, msg, final_route)
+        return final_route
+
+except Exception:
+    pass
+
+
+# ==================================================
+# GOD MODE V2: improve lessons injection
+# ==================================================
+try:
+    _neuromv_godmode_v1_lessons_text = godmode_lessons_text
+
+    def godmode_lessons_text(msg="", limit=18):
+        base = _neuromv_godmode_v1_lessons_text(msg, limit)
+
+        extra = """
+God Mode V2 principles:
+- Learn from user corrections when they say NeuroMV misunderstood them.
+- If a user complains that NeuroMV used the wrong tool, treat it as a possible lesson.
+- Do not overuse image/search/refuse unless the intent is clear.
+- Prefer normal chat when the intent is ambiguous.
+- Always distinguish between unsafe content requests and defensive/moderation discussions.
+"""
+
+        return (base + "\n\n" + extra).strip()
+
+except Exception:
+    pass
+
+# ==================================================
 # RUN
 # ==================================================
 if __name__ == "__main__":
