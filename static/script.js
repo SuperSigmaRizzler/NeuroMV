@@ -2703,3 +2703,146 @@ async function startNeuroMV(){
 }
 
 startNeuroMV();
+
+// =========================
+// NEUROMV COMPATIBILITY PATCH
+// Fix missing old markdown/link functions after Sources update
+// =========================
+
+function isValidHttpUrl(url){
+  try{
+    const u = new URL(String(url || ""));
+    return u.protocol === "http:" || u.protocol === "https:";
+  }catch{
+    return false;
+  }
+}
+
+function escAttr(t){
+  return String(t ?? "")
+    .replace(/&/g,"&amp;")
+    .replace(/"/g,"&quot;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;");
+}
+
+function isValidUrlForLink(url){
+  return isValidHttpUrl(url);
+}
+
+function linkifyHtml(html){
+  const root = document.createElement("div");
+  root.innerHTML = html;
+
+  const walker = document.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node){
+        if(!/https?:\/\//i.test(node.nodeValue || "")){
+          return NodeFilter.FILTER_REJECT;
+        }
+
+        let p = node.parentElement;
+
+        while(p){
+          const tag = (p.tagName || "").toLowerCase();
+          if(["a","code","pre","script","style","button"].includes(tag)){
+            return NodeFilter.FILTER_REJECT;
+          }
+          p = p.parentElement;
+        }
+
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }
+  );
+
+  const nodes = [];
+
+  while(walker.nextNode()){
+    nodes.push(walker.currentNode);
+  }
+
+  nodes.forEach(node=>{
+    const text = node.nodeValue || "";
+    const regex = /https?:\/\/[^\s<>"']+/gi;
+
+    let match;
+    let last = 0;
+    const frag = document.createDocumentFragment();
+
+    while((match = regex.exec(text)) !== null){
+      let url = match[0];
+      let trailing = "";
+
+      while(/[),.!?;:]$/.test(url)){
+        trailing = url.slice(-1) + trailing;
+        url = url.slice(0,-1);
+      }
+
+      frag.appendChild(document.createTextNode(text.slice(last, match.index)));
+
+      const realUrl = url.replace(/&amp;/g,"&");
+
+      if(isValidUrlForLink(realUrl)){
+        const a = document.createElement("a");
+        a.href = realUrl;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.textContent = url;
+        frag.appendChild(a);
+      }else{
+        frag.appendChild(document.createTextNode(url));
+      }
+
+      if(trailing){
+        frag.appendChild(document.createTextNode(trailing));
+      }
+
+      last = match.index + match[0].length;
+    }
+
+    frag.appendChild(document.createTextNode(text.slice(last)));
+
+    if(node.parentNode){
+      node.parentNode.replaceChild(frag,node);
+    }
+  });
+
+  return root.innerHTML;
+}
+
+function formatUserText(text){
+  const html = esc(text).replace(/\n/g,"<br>");
+  return linkifyHtml(html);
+}
+
+function restoreSafeBackendHtml(html){
+  html = String(html || "");
+
+  html = html.replace(/&lt;br\s*\/?&gt;/gi,"<br>");
+
+  html = html.replace(
+    /&lt;span style='opacity:\.85'&gt;([\s\S]*?)&lt;\/span&gt;/gi,
+    "<span style='opacity:.85'>$1</span>"
+  );
+
+  return html;
+}
+
+function formatBotText(text){
+  if(typeof parseMarkdown === "function"){
+    return parseMarkdown(text);
+  }
+
+  return linkifyHtml(esc(text).replace(/\n/g,"<br>"));
+}
+
+function markdownToHtml(text){
+  return formatBotText(text);
+}
+
+function renderMarkdown(text){
+  return formatBotText(text);
+}
