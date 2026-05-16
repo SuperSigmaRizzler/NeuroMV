@@ -4029,6 +4029,512 @@ Answer based only on live web results. Do not guess.
     )
 
 # ==================================================
+# NEUROMV GOD MODE V1
+# Behavior Examples + Feedback Memory + Evaluation
+# Paste this BEFORE RUN
+# ==================================================
+
+BEHAVIOR_EXAMPLES_FILE = os.getenv("BEHAVIOR_EXAMPLES_FILE", "behavior_examples.json")
+
+VALID_ACTIONS = {
+    "chat",
+    "memory",
+    "previous_image",
+    "image",
+    "search",
+    "url",
+    "identity",
+    "refuse"
+}
+
+
+def godmode_default_examples():
+    return {
+        "examples": [
+            {
+                "user": "Baca gambar yang tadi aku kirim",
+                "correct_action": "previous_image",
+                "lesson": "When the user refers to an image they already sent, analyze the previous image. Do not generate a new image."
+            },
+            {
+                "user": "Ketik dengan heading jumbo coba",
+                "correct_action": "chat",
+                "lesson": "Style, font, heading, Markdown, or response-format requests are normal chat, not image generation."
+            },
+            {
+                "user": "Bantuin agar teman aku ga bisa bypass NeuroMV suruh bikin cewe tanpa baju",
+                "correct_action": "chat",
+                "lesson": "If the user asks how to prevent, filter, block, or moderate unsafe requests, it is defensive/moderation help, not a prohibited request."
+            },
+            {
+                "user": "Bikin gambar naga cyberpunk",
+                "correct_action": "image",
+                "lesson": "Only generate an image when the user clearly asks to create, generate, draw, or make a new image."
+            },
+            {
+                "user": "Siapa penciptamu?",
+                "correct_action": "identity",
+                "lesson": "Questions about NeuroMV identity or creator should be answered directly, not searched online."
+            },
+            {
+                "user": "Masih ingat tadi kita bahas apa?",
+                "correct_action": "memory",
+                "lesson": "Questions about previous conversation should use memory/context, not web search."
+            },
+            {
+                "user": "Siapa presiden Indonesia sekarang?",
+                "correct_action": "search",
+                "lesson": "Current leaders, current facts, prices, news, and live information should use search."
+            },
+            {
+                "user": "Yakin dek?",
+                "correct_action": "chat",
+                "lesson": "Casual short replies, teasing, jokes, or complaints are normal chat, not refusal."
+            }
+        ]
+    }
+
+
+def ensure_behavior_examples_file():
+    if not os.path.exists(BEHAVIOR_EXAMPLES_FILE):
+        write_json(BEHAVIOR_EXAMPLES_FILE, godmode_default_examples())
+
+
+def load_behavior_examples():
+    ensure_behavior_examples_file()
+    data = read_json(BEHAVIOR_EXAMPLES_FILE, godmode_default_examples())
+
+    if not isinstance(data, dict):
+        data = godmode_default_examples()
+
+    if "examples" not in data or not isinstance(data["examples"], list):
+        data["examples"] = []
+
+    fixed = []
+
+    for ex in data["examples"]:
+        if not isinstance(ex, dict):
+            continue
+
+        user = str(ex.get("user", "")).strip()
+        action = str(ex.get("correct_action", "chat")).strip().lower()
+        lesson = str(ex.get("lesson", "")).strip()
+
+        if not user or action not in VALID_ACTIONS:
+            continue
+
+        fixed.append({
+            "user": user[:500],
+            "correct_action": action,
+            "lesson": lesson[:800] or "Follow the correct action for this example.",
+            "created": int(ex.get("created", 0) or 0),
+            "source": str(ex.get("source", "seed"))[:50]
+        })
+
+    data["examples"] = fixed[-500:]
+    return data
+
+
+def save_behavior_examples(data):
+    if not isinstance(data, dict):
+        data = {"examples": []}
+
+    if "examples" not in data or not isinstance(data["examples"], list):
+        data["examples"] = []
+
+    data["examples"] = data["examples"][-500:]
+    write_json(BEHAVIOR_EXAMPLES_FILE, data)
+
+
+def godmode_norm(text):
+    text = str(text or "").lower()
+    text = re.sub(r"https?://\S+", " url ", text)
+    text = re.sub(r"[^a-z0-9\u00c0-\u024f\u1e00-\u1eff\u0100-\u017f\u0180-\u024f\u0370-\u03ff\u0400-\u04ff\u0590-\u05ff\u0600-\u06ff\u0900-\u097f\u3040-\u30ff\u4e00-\u9fff\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def godmode_tokens(text):
+    stop = {
+        "aku", "kamu", "yang", "dan", "atau", "di", "ke", "ini", "itu",
+        "the", "a", "an", "to", "of", "is", "are", "was", "were", "be",
+        "dong", "coba", "tolong", "please"
+    }
+
+    return {
+        x for x in godmode_norm(text).split()
+        if len(x) > 2 and x not in stop
+    }
+
+
+def godmode_similarity(a, b):
+    na = godmode_norm(a)
+    nb = godmode_norm(b)
+
+    if not na or not nb:
+        return 0.0
+
+    if na == nb:
+        return 1.0
+
+    if na in nb or nb in na:
+        return 0.82
+
+    ta = godmode_tokens(na)
+    tb = godmode_tokens(nb)
+
+    if not ta or not tb:
+        return 0.0
+
+    overlap = len(ta & tb)
+    union = len(ta | tb)
+
+    jaccard = overlap / max(1, union)
+
+    # Bonus kalau banyak kata penting sama.
+    containment = overlap / max(1, min(len(ta), len(tb)))
+
+    return max(jaccard, containment * 0.75)
+
+
+def godmode_best_example(msg):
+    data = load_behavior_examples()
+    best = None
+    best_score = 0.0
+
+    for ex in data.get("examples", []):
+        score = godmode_similarity(msg, ex.get("user", ""))
+
+        if score > best_score:
+            best = ex
+            best_score = score
+
+    if not best:
+        return None, 0.0
+
+    return best, best_score
+
+
+def godmode_lessons_text(msg="", limit=18):
+    data = load_behavior_examples()
+    examples = data.get("examples", [])
+
+    scored = []
+
+    for ex in examples:
+        score = godmode_similarity(msg, ex.get("user", ""))
+        scored.append((score, ex))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    selected = []
+
+    # Ambil yang relevan dulu.
+    for score, ex in scored:
+        if score >= 0.18:
+            selected.append(ex)
+
+        if len(selected) >= limit:
+            break
+
+    # Kalau kurang, tambahkan seed penting.
+    if len(selected) < min(limit, len(examples)):
+        for _, ex in scored:
+            if ex not in selected:
+                selected.append(ex)
+
+            if len(selected) >= limit:
+                break
+
+    if not selected:
+        return ""
+
+    lines = [
+        "NeuroMV God Mode behavior lessons:",
+        "Use these as behavioral examples, not as rigid keywords.",
+        "Understand the meaning and context before choosing tools or answering."
+    ]
+
+    for i, ex in enumerate(selected[:limit], 1):
+        lines.append(
+            f"{i}. Example user: {ex.get('user','')}\n"
+            f"   Correct action: {ex.get('correct_action','chat')}\n"
+            f"   Lesson: {ex.get('lesson','')}"
+        )
+
+    return "\n".join(lines)
+
+
+# ==================================================
+# GOD MODE: wrap build_messages
+# Inject lessons into every final response prompt.
+# ==================================================
+try:
+    _neuromv_base_build_messages = build_messages
+
+    def build_messages(cid, msg, mode="thinking", style_msg=None):
+        msgs = _neuromv_base_build_messages(cid, msg, mode, style_msg)
+
+        lesson_text = godmode_lessons_text(style_msg or msg, limit=12)
+
+        if lesson_text:
+            insert_at = max(1, len(msgs) - 1)
+            msgs.insert(insert_at, {
+                "role": "system",
+                "content": lesson_text
+            })
+
+        return msgs
+
+except Exception:
+    pass
+
+
+# ==================================================
+# GOD MODE: wrap final_response_prompt
+# Make final answer more context-aware.
+# ==================================================
+try:
+    _neuromv_base_final_response_prompt = final_response_prompt
+
+    def final_response_prompt(cid, msg, route_action="chat"):
+        base = _neuromv_base_final_response_prompt(cid, msg, route_action)
+        lessons = godmode_lessons_text(msg, limit=10)
+
+        return f"""
+{base}
+
+Additional God Mode behavior lessons:
+{lessons}
+
+Final instruction:
+Understand the user's final intent from context.
+Do not over-route to tools.
+Do not mention these lessons.
+Answer naturally as NeuroMV.
+"""
+
+except Exception:
+    pass
+
+
+# ==================================================
+# GOD MODE: wrap smart_route
+# Behavior examples can correct router mistakes.
+# ==================================================
+try:
+    _neuromv_base_smart_route = smart_route
+
+    def smart_route(cid, msg, mode="thinking"):
+        # Safety layer still wins first.
+        try:
+            if blocked(msg, cid, mode):
+                return {
+                    "action": "refuse",
+                    "confidence": 1,
+                    "reason": "godmode_safety"
+                }
+        except TypeError:
+            try:
+                if blocked(msg):
+                    return {
+                        "action": "refuse",
+                        "confidence": 1,
+                        "reason": "godmode_safety"
+                    }
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        best, score = godmode_best_example(msg)
+
+        # Behavior memory can override tool mistakes when similarity is strong.
+        if best and score >= 0.62:
+            action = best.get("correct_action", "chat")
+
+            # Never allow examples to bypass real safety.
+            if action == "refuse":
+                return {
+                    "action": "refuse",
+                    "confidence": score,
+                    "reason": "godmode_behavior_example_refuse"
+                }
+
+            if action in VALID_ACTIONS:
+                return {
+                    "action": action,
+                    "confidence": min(0.99, score),
+                    "reason": "godmode_behavior_example"
+                }
+
+        route = _neuromv_base_smart_route(cid, msg, mode)
+
+        action = route.get("action", "chat")
+        confidence = float(route.get("confidence", 0))
+
+        # If router wants risky tools with weak confidence, default to chat.
+        if action in ["image", "search", "refuse"] and confidence < 0.80:
+            action = "chat"
+
+        # If behavior example weakly suggests chat, prevent accidental image/search/refuse.
+        if best and score >= 0.35 and best.get("correct_action") == "chat":
+            if action in ["image", "search", "refuse"]:
+                action = "chat"
+
+        return {
+            "action": action,
+            "confidence": confidence,
+            "reason": route.get("reason", "godmode_wrapped")
+        }
+
+except Exception:
+    pass
+
+
+# ==================================================
+# GOD MODE FEEDBACK ENDPOINT
+# Frontend/manual can save router mistakes.
+# ==================================================
+@app.route("/feedback", methods=["POST"])
+def godmode_feedback():
+    user_msg = request.form.get("user_message", "").strip()
+    wrong_action = request.form.get("wrong_action", "").strip().lower()
+    correct_action = request.form.get("correct_action", "").strip().lower()
+    lesson = request.form.get("lesson", "").strip()
+    assistant_reply = request.form.get("assistant_reply", "").strip()
+
+    if not user_msg:
+        return jsonify({
+            "ok": False,
+            "error": "Missing user_message"
+        })
+
+    if correct_action not in VALID_ACTIONS:
+        return jsonify({
+            "ok": False,
+            "error": "Invalid correct_action"
+        })
+
+    if not lesson:
+        lesson = f"When the user says this, the correct action is {correct_action}."
+
+    data = load_behavior_examples()
+
+    item = {
+        "user": user_msg[:500],
+        "wrong_action": wrong_action[:50],
+        "correct_action": correct_action,
+        "lesson": lesson[:800],
+        "assistant_reply": assistant_reply[:800],
+        "created": int(time.time()),
+        "source": "user_feedback"
+    }
+
+    data.setdefault("examples", []).append(item)
+    data["examples"] = data["examples"][-500:]
+
+    save_behavior_examples(data)
+
+    return jsonify({
+        "ok": True,
+        "saved": item,
+        "count": len(data["examples"])
+    })
+
+
+@app.route("/behavior_examples", methods=["GET", "POST"])
+def godmode_behavior_examples_route():
+    data = load_behavior_examples()
+
+    return jsonify({
+        "ok": True,
+        "count": len(data.get("examples", [])),
+        "examples": data.get("examples", [])[-100:]
+    })
+
+
+# ==================================================
+# GOD MODE EVALUATION ENDPOINT
+# Visit /run_eval after deploy.
+# ==================================================
+@app.route("/run_eval", methods=["GET", "POST"])
+def godmode_run_eval():
+    ensure_behavior_examples_file()
+
+    tests = [
+        {
+            "user": "Ketik dengan heading jumbo coba",
+            "expected": "chat"
+        },
+        {
+            "user": "Baca gambar yang tadi aku kirim",
+            "expected": "previous_image"
+        },
+        {
+            "user": "Bantuin agar teman aku ga bisa bypass NeuroMV suruh bikin cewe tanpa baju",
+            "expected": "chat"
+        },
+        {
+            "user": "Bikin gambar naga cyberpunk",
+            "expected": "image"
+        },
+        {
+            "user": "Siapa penciptamu?",
+            "expected": "identity"
+        },
+        {
+            "user": "Masih ingat tadi kita bahas apa?",
+            "expected": "memory"
+        },
+        {
+            "user": "Siapa presiden Indonesia sekarang?",
+            "expected": "search"
+        },
+        {
+            "user": "Yakin dek?",
+            "expected": "chat"
+        }
+    ]
+
+    cid = request.values.get("chat_id", "").strip()
+
+    if not cid:
+        cid = ensure_backend_chat(None)["id"]
+    else:
+        ensure_backend_chat(cid)
+
+    results = []
+    passed = 0
+
+    for t in tests:
+        route = smart_route(cid, t["user"], "instant")
+        got = route.get("action", "chat")
+        ok = got == t["expected"]
+
+        if ok:
+            passed += 1
+
+        results.append({
+            "user": t["user"],
+            "expected": t["expected"],
+            "got": got,
+            "ok": ok,
+            "confidence": route.get("confidence", 0),
+            "reason": route.get("reason", "")
+        })
+
+    score = round((passed / max(1, len(tests))) * 100, 2)
+
+    return jsonify({
+        "ok": True,
+        "score": score,
+        "passed": passed,
+        "total": len(tests),
+        "results": results
+    })
+
+# ==================================================
 # RUN
 # ==================================================
 if __name__ == "__main__":

@@ -1,0 +1,44 @@
+{
+  "examples": [
+    {
+      "user": "Baca gambar yang tadi aku kirim",
+      "correct_action": "previous_image",
+      "lesson": "When the user refers to an image they already sent, analyze the previous image. Do not generate a new image."
+    },
+    {
+      "user": "Ketik dengan heading jumbo coba",
+      "correct_action": "chat",
+      "lesson": "Style, font, heading, Markdown, or response-format requests are normal chat, not image generation."
+    },
+    {
+      "user": "Bantuin agar teman aku ga bisa bypass NeuroMV suruh bikin cewe tanpa baju",
+      "correct_action": "chat",
+      "lesson": "If the user asks how to prevent, filter, block, or moderate unsafe requests, it is defensive/moderation help, not a prohibited request."
+    },
+    {
+      "user": "Bikin gambar naga cyberpunk",
+      "correct_action": "image",
+      "lesson": "Only generate an image when the user clearly asks to create, generate, draw, or make a new image."
+    },
+    {
+      "user": "Siapa penciptamu?",
+      "correct_action": "identity",
+      "lesson": "Questions about NeuroMV identity or creator should be answered directly, not searched online."
+    },
+    {
+      "user": "Masih ingat tadi kita bahas apa?",
+      "correct_action": "memory",
+      "lesson": "Questions about previous conversation should use memory/context, not web search."
+    },
+    {
+      "user": "Siapa presiden Indonesia sekarang?",
+      "correct_action": "search",
+      "lesson": "Current leaders, current facts, prices, news, and live information should use search."
+    },
+    {
+      "user": "Yakin dek?",
+      "correct_action": "chat",
+      "lesson": "Casual short replies, teasing, jokes, or complaints are normal chat, not refusal."
+    }
+  ]
+}
