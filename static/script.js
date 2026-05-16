@@ -746,371 +746,264 @@ function cleanHtmlStyleLeaks(text){
 }
 
 // =========================
-// MARKDOWN + CODE BLOCK + SOURCES FIX
+// LINKS + MARKDOWN
 // =========================
-window.__neuromvSources = window.__neuromvSources || {};
-
-function detectCodeLanguage(code, givenLang=""){
-  const lang = String(givenLang || "").trim().toLowerCase();
-
-  if(lang && lang !== "text" && lang !== "plain" && lang !== "plaintext"){
-    if(lang === "py") return "python";
-    if(lang === "js") return "javascript";
-    if(lang === "sh") return "bash";
-    return lang;
-  }
-
-  const c = String(code || "").trim();
-
-  if(/^\s*<!DOCTYPE html>|<html[\s>]|<div[\s>]|<script[\s>]|<style[\s>]/i.test(c)){
-    return "html";
-  }
-
-  if(/^\s*(from\s+\w+\s+import|import\s+\w+|def\s+\w+\(|class\s+\w+|print\(|if\s+__name__\s*==)/m.test(c)){
-    return "python";
-  }
-
-  if(/\b(function|const|let|var|document\.|window\.|addEventListener|querySelector|async\s+function|=>)\b/.test(c)){
-    return "javascript";
-  }
-
-  if(/[.#]?[a-zA-Z0-9_-]+\s*\{[\s\S]*?\}|@media\s*\(|--[a-zA-Z-]+\s*:/.test(c)){
-    return "css";
-  }
-
-  if(/^\s*\{[\s\S]*\}\s*$/.test(c) || /^\s*\[[\s\S]*\]\s*$/.test(c)){
-    return "json";
-  }
-
-  if(/\bSELECT\b|\bINSERT\b|\bUPDATE\b|\bDELETE\b|\bCREATE TABLE\b/i.test(c)){
-    return "sql";
-  }
-
-  if(/^\s*(git|pip|npm|python|flask|cd|ls|rm|cp|mv|curl|termux|pkg)\s+/m.test(c)){
-    return "bash";
-  }
-
-  return "text";
+function isValidUrlForLink(url){
+  return isValidHttpUrl(url);
 }
 
-function languageLabel(lang){
-  const map = {
-    js:"JavaScript",
-    javascript:"JavaScript",
-    py:"Python",
-    python:"Python",
-    html:"HTML",
-    css:"CSS",
-    json:"JSON",
-    bash:"Bash",
-    shell:"Shell",
-    sh:"Shell",
-    sql:"SQL",
-    text:"Text",
-    plaintext:"Text"
-  };
+function linkifyHtml(html){
+  const root = document.createElement("div");
+  root.innerHTML = html;
 
-  return map[lang] || (lang ? lang.charAt(0).toUpperCase() + lang.slice(1) : "Text");
-}
-
-function protectMath(raw){
-  const math = [];
-
-  let text = raw.replace(/\$\$([\s\S]*?)\$\$/g, (_, body)=>{
-    const id = math.length;
-    math.push(`$$${body}$$`);
-    return `@@NEUROMV_MATH_${id}@@`;
-  });
-
-  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, body)=>{
-    const id = math.length;
-    math.push(`\\[${body}\\]`);
-    return `@@NEUROMV_MATH_${id}@@`;
-  });
-
-  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, body)=>{
-    const id = math.length;
-    math.push(`\\(${body}\\)`);
-    return `@@NEUROMV_MATH_${id}@@`;
-  });
-
-  return { text, math };
-}
-
-function restoreMath(html, math){
-  math.forEach((m,i)=>{
-    html = html.replace(`@@NEUROMV_MATH_${i}@@`, esc(m));
-  });
-  return html;
-}
-
-function decodeSourcePayload(token){
-  try{
-    let b64 = String(token || "").replace(/-/g, "+").replace(/_/g, "/");
-    while(b64.length % 4) b64 += "=";
-
-    const binary = atob(b64);
-    const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0));
-    const text = new TextDecoder("utf-8").decode(bytes);
-
-    const data = JSON.parse(text);
-    return Array.isArray(data) ? data : [];
-  }catch{
-    return [];
-  }
-}
-
-function extractSources(raw){
-  const sources = [];
-  let text = String(raw || "");
-
-  text = text.replace(/\[\[NEUROMV_SOURCES:([A-Za-z0-9_\-=]+)\]\]/g, (_, token)=>{
-    const arr = decodeSourcePayload(token);
-    arr.forEach(x=>sources.push(x));
-    return "";
-  });
-
-  return { text, sources };
-}
-
-function sourceDomain(link){
-  try{
-    return new URL(link).hostname.replace(/^www\./,"");
-  }catch{
-    return "";
-  }
-}
-
-function uniqueSources(sources){
-  const seen = new Set();
-  const out = [];
-
-  for(const s of sources || []){
-    const link = String(s.link || "").trim();
-    const title = String(s.title || s.source || "Source").trim();
-    const key = (link || title).toLowerCase();
-
-    if(!key || seen.has(key)) continue;
-
-    seen.add(key);
-    out.push({
-      title,
-      text: String(s.text || "").trim(),
-      link,
-      source: String(s.source || "Web").trim()
-    });
-  }
-
-  return out.slice(0,8);
-}
-
-function renderSourcesButton(sources){
-  const clean = uniqueSources(sources);
-
-  if(!clean.length) return "";
-
-  const id = "src_" + Math.random().toString(36).slice(2,10);
-  window.__neuromvSources[id] = clean;
-
-  return `
-    <div class="sources-ui">
-      <button class="sources-btn" type="button" onclick="openSourcesBubble('${id}', this)">
-        <span class="sources-icon">⌁</span>
-        <span>Sources</span>
-        <b>${clean.length}</b>
-      </button>
-    </div>
-  `;
-}
-
-function closeSourcesBubble(){
-  document.querySelectorAll(".sources-popover").forEach(x=>x.remove());
-  document.removeEventListener("click", handleSourcesOutsideClick);
-}
-
-function handleSourcesOutsideClick(e){
-  if(
-    e.target.closest(".sources-popover") ||
-    e.target.closest(".sources-btn")
-  ){
-    return;
-  }
-
-  closeSourcesBubble();
-}
-
-function openSourcesBubble(id, btn){
-  const sources = uniqueSources(window.__neuromvSources[id] || []);
-
-  if(!sources.length) return;
-
-  closeSourcesBubble();
-
-  const pop = document.createElement("div");
-  pop.className = "sources-popover";
-
-  pop.innerHTML = `
-    <div class="sources-popover-head">
-      <strong>Sources</strong>
-      <button type="button" onclick="closeSourcesBubble()">×</button>
-    </div>
-
-    <div class="sources-popover-list">
-      ${sources.map((s,i)=>{
-        const domain = sourceDomain(s.link);
-        const favicon = domain
-          ? `<img src="https://www.google.com/s2/favicons?domain=${esc(domain)}&sz=32" alt="">`
-          : `<span class="sources-number">${i+1}</span>`;
-
-        const body = `
-          <div class="sources-item-icon">${favicon}</div>
-          <div class="sources-item-body">
-            <div class="sources-item-title">${esc(s.title || domain || "Source")}</div>
-            <div class="sources-item-meta">${esc(domain || s.source || "Web")}</div>
-            ${s.text ? `<div class="sources-item-snippet">${esc(s.text)}</div>` : ""}
-          </div>
-        `;
-
-        if(s.link){
-          return `
-            <a class="sources-item" href="${esc(s.link)}" target="_blank" rel="noopener noreferrer">
-              ${body}
-            </a>
-          `;
+  const walker = document.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node){
+        if(!/https?:\/\//i.test(node.nodeValue || "")){
+          return NodeFilter.FILTER_REJECT;
         }
 
-        return `
-          <div class="sources-item">
-            ${body}
-          </div>
-        `;
-      }).join("")}
-    </div>
-  `;
+        let p = node.parentElement;
 
-  document.body.appendChild(pop);
+        while(p){
+          const tag = (p.tagName || "").toLowerCase();
+          if(["a","code","pre","script","style","button"].includes(tag)){
+            return NodeFilter.FILTER_REJECT;
+          }
+          p = p.parentElement;
+        }
 
-  const r = btn.getBoundingClientRect();
-
-  requestAnimationFrame(()=>{
-    const pad = 12;
-    const pr = pop.getBoundingClientRect();
-
-    let top = r.bottom + 8;
-    let left = r.left;
-
-    if(left + pr.width > window.innerWidth - pad){
-      left = window.innerWidth - pr.width - pad;
+        return NodeFilter.FILTER_ACCEPT;
+      }
     }
-
-    if(top + pr.height > window.innerHeight - pad){
-      top = r.top - pr.height - 8;
-    }
-
-    top = Math.max(pad, top);
-    left = Math.max(pad, left);
-
-    pop.style.top = top + "px";
-    pop.style.left = left + "px";
-    pop.classList.add("show");
-  });
-
-  setTimeout(()=>{
-    document.addEventListener("click", handleSourcesOutsideClick);
-  },0);
-}
-
-function parseInlineMarkdown(text){
-  const protectedMath = protectMath(String(text || ""));
-  let html = esc(protectedMath.text);
-
-  html = html.replace(/^### (.*)$/gm,"<h3>$1</h3>");
-  html = html.replace(/^## (.*)$/gm,"<h2>$1</h2>");
-  html = html.replace(/^# (.*)$/gm,"<h1>$1</h1>");
-
-  html = html.replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>");
-  html = html.replace(/\*(.*?)\*/g,"<em>$1</em>");
-  html = html.replace(/`([^`]+)`/g,"<code class='inline-code'>$1</code>");
-
-  html = html.replace(
-    /(https?:\/\/[^\s<]+)/g,
-    `<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>`
   );
 
-  html = html.replace(/\n/g,"<br>");
-  html = restoreMath(html, protectedMath.math);
+  const nodes = [];
+
+  while(walker.nextNode()){
+    nodes.push(walker.currentNode);
+  }
+
+  nodes.forEach(node=>{
+    const text = node.nodeValue || "";
+    const regex = /https?:\/\/[^\s<>"']+/gi;
+
+    let match;
+    let last = 0;
+    const frag = document.createDocumentFragment();
+
+    while((match = regex.exec(text)) !== null){
+      let url = match[0];
+      let trailing = "";
+
+      while(/[),.!?;:]$/.test(url)){
+        trailing = url.slice(-1) + trailing;
+        url = url.slice(0,-1);
+      }
+
+      frag.appendChild(document.createTextNode(text.slice(last, match.index)));
+
+      const realUrl = url.replace(/&amp;/g,"&");
+
+      if(isValidUrlForLink(realUrl)){
+        const a = document.createElement("a");
+        a.href = realUrl;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.textContent = url;
+        frag.appendChild(a);
+      }else{
+        frag.appendChild(document.createTextNode(url));
+      }
+
+      if(trailing){
+        frag.appendChild(document.createTextNode(trailing));
+      }
+
+      last = match.index + match[0].length;
+    }
+
+    frag.appendChild(document.createTextNode(text.slice(last)));
+
+    if(node.parentNode){
+      node.parentNode.replaceChild(frag,node);
+    }
+  });
+
+  return root.innerHTML;
+}
+
+function formatUserText(text){
+  const html = esc(text).replace(/\n/g,"<br>");
+  return linkifyHtml(html);
+}
+
+function protectMathBlocks(text){
+  const math = [];
+
+  text = String(text || "").replace(/\$\$([\s\S]*?)\$\$/g,(_,body)=>{
+    const id = math.length;
+    math.push(`<div class="math-block">\\[${esc(body.trim())}\\]</div>`);
+    return `@@MATH_BLOCK_${id}@@`;
+  });
+
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g,(_,body)=>{
+    const id = math.length;
+    math.push(`<div class="math-block">\\[${esc(body.trim())}\\]</div>`);
+    return `@@MATH_BLOCK_${id}@@`;
+  });
+
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g,(_,body)=>{
+    const id = math.length;
+    math.push(`<span class="math-inline">\\(${esc(body.trim())}\\)</span>`);
+    return `@@MATH_BLOCK_${id}@@`;
+  });
+
+  return {text,math};
+}
+
+function restoreSafeBackendHtml(html){
+  html = html.replace(/&lt;br\s*\/?&gt;/gi,"<br>");
+
+  html = html.replace(
+    /&lt;span style='opacity:\.85'&gt;([\s\S]*?)&lt;\/span&gt;/gi,
+    "<span style='opacity:.85'>$1</span>"
+  );
+
+  html = html.replace(
+    /&lt;a href='([^']+)' target='_blank' title='([^']*)'&gt;&lt;img src='([^']+)' style='([^']*)'&gt;&lt;\/a&gt;/gi,
+    (_,href,title,src,style)=>{
+      const cleanHref = href.replace(/&amp;/g,"&");
+      const cleanSrc = src.replace(/&amp;/g,"&");
+
+      if(!isValidHttpUrl(cleanHref)) return "";
+      if(!isValidHttpUrl(cleanSrc)) return "";
+
+      return `
+        <a href="${escAttr(cleanHref)}" target="_blank" rel="noopener noreferrer" title="${escAttr(title)}" class="source-icon">
+          <img src="${escAttr(cleanSrc)}" style="${escAttr(style)}">
+        </a>
+      `;
+    }
+  );
+
+  html = html.replace(
+    /&lt;a href='([^']+)' target='_blank'&gt;([\s\S]*?)&lt;\/a&gt;/gi,
+    (_,href,label)=>{
+      const cleanHref = href.replace(/&amp;/g,"&");
+      if(!isValidHttpUrl(cleanHref)) return esc(label);
+      return `<a href="${escAttr(cleanHref)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    }
+  );
 
   return html;
 }
 
 function parseMarkdown(text){
-  const extracted = extractSources(String(text || ""));
-  const raw = extracted.text;
-  const sources = extracted.sources;
+  text = cleanBackendStatus(text);
+  text = cleanHtmlStyleLeaks(text);
+
+  const protectedMath = protectMathBlocks(text);
+  text = protectedMath.text;
 
   const blocks = [];
 
-  let protectedText = raw.replace(/```([a-zA-Z0-9_+\-.#]*)?\n([\s\S]*?)```/g, (match, lang, code)=>{
+  text = String(text).replace(/```([a-zA-Z0-9_+\-.#]*)?\n([\s\S]*?)```/g, (_,lang,code)=>{
+    const language = safeLang(lang);
     const id = "code_" + Math.random().toString(36).slice(2,10);
-    const detected = detectCodeLanguage(code, lang);
-    const label = languageLabel(detected);
 
-    blocks.push({
-      id,
-      lang: detected,
-      label,
-      code: String(code || "").replace(/\n$/,"")
-    });
-
-    return `\n@@NEUROMV_CODE_BLOCK_${blocks.length - 1}@@\n`;
-  });
-
-  let html = parseInlineMarkdown(protectedText);
-
-  blocks.forEach((b, i)=>{
-    const blockHtml = `
-      <div class="code-wrap">
-        <div class="code-head">
-          <span class="code-lang">${esc(b.label)}</span>
-          <button class="copy-btn" type="button" onclick="copyCode('${b.id}', this)" title="Copy code" aria-label="Copy code">
-            <svg viewBox="0 0 24 24" class="copy-icon" aria-hidden="true">
-              <path d="M8 8.5A2.5 2.5 0 0 1 10.5 6H18a2 2 0 0 1 2 2v10.5a2.5 2.5 0 0 1-2.5 2.5H10a2 2 0 0 1-2-2V8.5Z"></path>
-              <path d="M6 15H5.5A2.5 2.5 0 0 1 3 12.5V5a2 2 0 0 1 2-2h7.5A2.5 2.5 0 0 1 15 5.5V6"></path>
-            </svg>
-            <span>Copy</span>
+    const block = `
+      <div class="code-wrap chatgpt-code-wrap">
+        <div class="code-head chatgpt-code-head">
+          <span class="code-lang">${esc(language)}</span>
+          <button class="copy-btn code-copy-btn" onclick="copyCode('${id}',this)" type="button" aria-label="Copy code">
+            <span class="copy-icon"></span>
+            <span class="copy-label">Copy</span>
           </button>
         </div>
-        <pre class="code-pre"><code id="${b.id}" class="language-${esc(b.lang)}">${esc(b.code)}</code></pre>
+        <pre class="code-pre chatgpt-code-pre"><code id="${id}" class="language-${esc(language)}">${esc(code.trim())}</code></pre>
       </div>
     `;
 
-    html = html.replace(`@@NEUROMV_CODE_BLOCK_${i}@@`, blockHtml);
+    blocks.push(block);
+    return `@@NEUROMV_CODEBLOCK_${blocks.length - 1}@@`;
   });
 
-  html += renderSourcesButton(sources);
+  let html = esc(text);
+
+  html = html.replace(/^### (.*)$/gm,"<h3>$1</h3>");
+  html = html.replace(/^## (.*)$/gm,"<h2>$1</h2>");
+  html = html.replace(/^# (.*)$/gm,"<h1>$1</h1>");
+  html = html.replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>");
+  html = html.replace(/\*(.*?)\*/g,"<em>$1</em>");
+  html = html.replace(/`([^`]+)`/g,"<code class='inline-code'>$1</code>");
+  html = html.replace(/^\- (.*)$/gm,"• $1");
+  html = html.replace(/\n/g,"<br>");
+
+  blocks.forEach((block,i)=>{
+    html = html.replace(`@@NEUROMV_CODEBLOCK_${i}@@`, block);
+  });
+
+  protectedMath.math.forEach((block,i)=>{
+    html = html.replace(`@@MATH_BLOCK_${i}@@`, block);
+  });
+
+  html = restoreSafeBackendHtml(html);
+  html = linkifyHtml(html);
 
   return html;
 }
 
-function copyCode(id, btn){
+function renderMath(){
+  try{
+    if(window.MathJax && window.MathJax.typesetPromise){
+      window.MathJax.typesetPromise();
+    }
+  }catch{}
+}
+
+function applyHighlight(){
+  if(window.hljs){
+    document.querySelectorAll("pre code").forEach(el=>{
+      try{
+        hljs.highlightElement(el);
+      }catch{}
+    });
+  }
+
+  renderMath();
+}
+
+function copyCode(id,btn){
   const el = document.getElementById(id);
-  if(!el) return;
+  const code = el ? el.innerText : "";
+  const label = btn.querySelector(".copy-label");
 
-  navigator.clipboard.writeText(el.innerText).then(()=>{
-    const old = btn.innerHTML;
-
+  navigator.clipboard.writeText(code).then(()=>{
     btn.classList.add("copied");
-    btn.innerHTML = `
-      <svg viewBox="0 0 24 24" class="copy-icon" aria-hidden="true">
-        <path d="M20 6L9 17l-5-5"></path>
-      </svg>
-      <span>Copied</span>
-    `;
+
+    if(label){
+      label.innerText = "Copied";
+    }else{
+      btn.innerText = "Copied";
+    }
 
     setTimeout(()=>{
       btn.classList.remove("copied");
-      btn.innerHTML = old;
+
+      if(label){
+        label.innerText = "Copy";
+      }else{
+        btn.innerText = "Copy";
+      }
     },1200);
+  }).catch(()=>{
+    if(label){
+      label.innerText = "Failed";
+      setTimeout(()=>label.innerText = "Copy",1200);
+    }
   });
 }
 
@@ -2703,146 +2596,3 @@ async function startNeuroMV(){
 }
 
 startNeuroMV();
-
-// =========================
-// NEUROMV COMPATIBILITY PATCH
-// Fix missing old markdown/link functions after Sources update
-// =========================
-
-function isValidHttpUrl(url){
-  try{
-    const u = new URL(String(url || ""));
-    return u.protocol === "http:" || u.protocol === "https:";
-  }catch{
-    return false;
-  }
-}
-
-function escAttr(t){
-  return String(t ?? "")
-    .replace(/&/g,"&amp;")
-    .replace(/"/g,"&quot;")
-    .replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;");
-}
-
-function isValidUrlForLink(url){
-  return isValidHttpUrl(url);
-}
-
-function linkifyHtml(html){
-  const root = document.createElement("div");
-  root.innerHTML = html;
-
-  const walker = document.createTreeWalker(
-    root,
-    NodeFilter.SHOW_TEXT,
-    {
-      acceptNode(node){
-        if(!/https?:\/\//i.test(node.nodeValue || "")){
-          return NodeFilter.FILTER_REJECT;
-        }
-
-        let p = node.parentElement;
-
-        while(p){
-          const tag = (p.tagName || "").toLowerCase();
-          if(["a","code","pre","script","style","button"].includes(tag)){
-            return NodeFilter.FILTER_REJECT;
-          }
-          p = p.parentElement;
-        }
-
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    }
-  );
-
-  const nodes = [];
-
-  while(walker.nextNode()){
-    nodes.push(walker.currentNode);
-  }
-
-  nodes.forEach(node=>{
-    const text = node.nodeValue || "";
-    const regex = /https?:\/\/[^\s<>"']+/gi;
-
-    let match;
-    let last = 0;
-    const frag = document.createDocumentFragment();
-
-    while((match = regex.exec(text)) !== null){
-      let url = match[0];
-      let trailing = "";
-
-      while(/[),.!?;:]$/.test(url)){
-        trailing = url.slice(-1) + trailing;
-        url = url.slice(0,-1);
-      }
-
-      frag.appendChild(document.createTextNode(text.slice(last, match.index)));
-
-      const realUrl = url.replace(/&amp;/g,"&");
-
-      if(isValidUrlForLink(realUrl)){
-        const a = document.createElement("a");
-        a.href = realUrl;
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        a.textContent = url;
-        frag.appendChild(a);
-      }else{
-        frag.appendChild(document.createTextNode(url));
-      }
-
-      if(trailing){
-        frag.appendChild(document.createTextNode(trailing));
-      }
-
-      last = match.index + match[0].length;
-    }
-
-    frag.appendChild(document.createTextNode(text.slice(last)));
-
-    if(node.parentNode){
-      node.parentNode.replaceChild(frag,node);
-    }
-  });
-
-  return root.innerHTML;
-}
-
-function formatUserText(text){
-  const html = esc(text).replace(/\n/g,"<br>");
-  return linkifyHtml(html);
-}
-
-function restoreSafeBackendHtml(html){
-  html = String(html || "");
-
-  html = html.replace(/&lt;br\s*\/?&gt;/gi,"<br>");
-
-  html = html.replace(
-    /&lt;span style='opacity:\.85'&gt;([\s\S]*?)&lt;\/span&gt;/gi,
-    "<span style='opacity:.85'>$1</span>"
-  );
-
-  return html;
-}
-
-function formatBotText(text){
-  if(typeof parseMarkdown === "function"){
-    return parseMarkdown(text);
-  }
-
-  return linkifyHtml(esc(text).replace(/\n/g,"<br>"));
-}
-
-function markdownToHtml(text){
-  return formatBotText(text);
-}
-
-function renderMarkdown(text){
-  return formatBotText(text);
-}
