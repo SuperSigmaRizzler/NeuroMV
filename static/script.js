@@ -496,12 +496,12 @@ function showLimitBubble(kind="chat"){
 
   if(kind === "chat"){
     title = "You've reached your daily chat limit";
-    desc = "You can still type, but sending messages is disabled until the limit resets tomorrow.";
+    desc = "Come back again tomorrow.";
   }
 
   if(kind === "file"){
     title = "You've reached your daily upload limit";
-    desc = "The upload button is disabled until the limit resets tomorrow.";
+    desc = "Come back again for more.";
   }
 
   if(kind === "image"){

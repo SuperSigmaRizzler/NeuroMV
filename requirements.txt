@@ -5,3 +5,5 @@ lxml
 PyPDF2
 python-docx
 gunicorn
+paddleocr
+paddlepaddle
