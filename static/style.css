@@ -2088,3 +2088,41 @@ textarea.limit-chat-reached,
   display:block !important;
   flex:0 0 auto !important;
 }
+
+.copy-btn.icon-only,
+.code-copy-btn.icon-only{
+  width:32px !important;
+  min-width:32px !important;
+  height:28px !important;
+  padding:0 !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  gap:0 !important;
+  writing-mode:horizontal-tb !important;
+  white-space:nowrap !important;
+}
+
+.copy-btn.icon-only .copy-icon,
+.code-copy-btn.icon-only .copy-icon{
+  width:16px !important;
+  height:16px !important;
+  min-width:16px !important;
+  display:block !important;
+  fill:none !important;
+  stroke:currentColor !important;
+  stroke-width:1.8 !important;
+  stroke-linecap:round !important;
+  stroke-linejoin:round !important;
+}
+
+.copy-btn.icon-only.copied,
+.code-copy-btn.icon-only.copied{
+  color:#7cffb0 !important;
+  background:rgba(61,220,132,.12) !important;
+}
+
+.copy-btn.icon-only .check-icon,
+.code-copy-btn.icon-only .check-icon{
+  stroke-width:2.2 !important;
+}

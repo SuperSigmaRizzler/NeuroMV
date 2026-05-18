@@ -914,18 +914,22 @@ function parseMarkdown(text){
     const language = safeLang(lang);
     const id = "code_" + Math.random().toString(36).slice(2,10);
 
-    const block = `
-      <div class="code-wrap chatgpt-code-wrap">
-        <div class="code-head chatgpt-code-head">
-          <span class="code-lang">${esc(language)}</span>
-          <button class="copy-btn code-copy-btn" onclick="copyCode('${id}',this)" type="button" aria-label="Copy code">
-            <span class="copy-icon"></span>
-            <span class="copy-label">Copy</span>
-          </button>
-        </div>
-        <pre class="code-pre chatgpt-code-pre"><code id="${id}" class="language-${esc(language)}">${esc(code.trim())}</code></pre>
-      </div>
-    `;
+  const block = `
+  <div class="code-wrap chatgpt-code-wrap">
+    <div class="code-head chatgpt-code-head">
+      <span class="code-lang">${esc(language)}</span>
+
+      <button class="copy-btn code-copy-btn icon-only" onclick="copyCode('${id}',this)" type="button" aria-label="Copy code" title="Copy code">
+        <svg viewBox="0 0 24 24" class="copy-icon" aria-hidden="true">
+          <path d="M8 8.5A2.5 2.5 0 0 1 10.5 6H18a2 2 0 0 1 2 2v10.5a2.5 2.5 0 0 1-2.5 2.5H10a2 2 0 0 1-2-2V8.5Z"></path>
+          <path d="M6 15H5.5A2.5 2.5 0 0 1 3 12.5V5a2 2 0 0 1 2-2h7.5A2.5 2.5 0 0 1 15 5.5V6"></path>
+        </svg>
+      </button>
+    </div>
+
+    <pre class="code-pre chatgpt-code-pre"><code id="${id}" class="language-${esc(lang)}">${esc(code)}</code></pre>
+  </div>
+`;
 
     blocks.push(block);
     return `@@NEUROMV_CODEBLOCK_${blocks.length - 1}@@`;
@@ -976,34 +980,37 @@ function applyHighlight(){
   renderMath();
 }
 
-function copyCode(id,btn){
+function copyCode(id, btn){
   const el = document.getElementById(id);
-  const code = el ? el.innerText : "";
-  const label = btn.querySelector(".copy-label");
+  if(!el || !btn) return;
 
-  navigator.clipboard.writeText(code).then(()=>{
+  const text = el.innerText || el.textContent || "";
+
+  navigator.clipboard.writeText(text).then(()=>{
+    const oldHTML = btn.innerHTML;
+
     btn.classList.add("copied");
+    btn.title = "Copied";
+    btn.setAttribute("aria-label", "Copied");
 
-    if(label){
-      label.innerText = "Copied";
-    }else{
-      btn.innerText = "Copied";
-    }
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24" class="copy-icon check-icon" aria-hidden="true">
+        <path d="M20 6L9 17l-5-5"></path>
+      </svg>
+    `;
 
     setTimeout(()=>{
       btn.classList.remove("copied");
-
-      if(label){
-        label.innerText = "Copy";
-      }else{
-        btn.innerText = "Copy";
-      }
+      btn.title = "Copy code";
+      btn.setAttribute("aria-label", "Copy code");
+      btn.innerHTML = oldHTML;
     },1200);
   }).catch(()=>{
-    if(label){
-      label.innerText = "Failed";
-      setTimeout(()=>label.innerText = "Copy",1200);
-    }
+    btn.title = "Copy failed";
+
+    setTimeout(()=>{
+      btn.title = "Copy code";
+    },1200);
   });
 }
 
